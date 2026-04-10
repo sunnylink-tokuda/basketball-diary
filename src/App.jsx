@@ -1,19 +1,24 @@
 import { useState, useEffect } from “react”;
+import { supabase } from ‘./supabase.js’;
 
 const COLOR = { solo: “#1D9E75”, team: “#378ADD”, game: “#D85A30”, both: “#7F77DD” };
-const STORAGE_KEY = “bball-diary-v6”;
 
 function newGame(){return {opponent:””,myScore:””,oppScore:””,playTime:””,shot2a:””,shot2m:””,shot3a:””,shot3m:””,fta:””,ftm:””,ast:””,reb:””,stl:””,tov:””,foul:””,good:””,reflect:””};};
 function newDaySummary(){return {memo:””,good:””,reflect:””,next:””,parentComment:””};};
 
-async function loadData(){
-try{
-const r=await window.storage.get(STORAGE_KEY);
-return r?JSON.parse(r.value):{};
-}catch{return{};}
+async function loadFromSupabase() {
+const { data, error } = await supabase.from(‘records’).select(’*’);
+if (error) { console.error(error); return {}; }
+const result = {};
+data.forEach(row => { result[row.date] = row.data; });
+return result;
 }
-async function saveData(records){
-try{ await window.storage.set(STORAGE_KEY,JSON.stringify(records)); }catch{}
+
+async function saveToSupabase(date, dayData) {
+const { error } = await supabase
+.from(‘records’)
+.upsert({ date, data: dayData, updated_at: new Date().toISOString() });
+if (error) console.error(error);
 }
 
 const btnS=(ex={})=>({padding:“7px 14px”,fontSize:13,borderRadius:“8px”,border:“0.5px solid #ccc”,background:”#fff”,color:”#333”,cursor:“pointer”,…ex});
@@ -33,13 +38,14 @@ return d>0?d:0;
 }
 
 function sumGames(games){
-const s={shot2a:0,shot2m:0,shot3a:0,shot3m:0,fta:0,ftm:0,ast:0,reb:0,stl:0,tov:0,mins:0,count:0};
+const s={shot2a:0,shot2m:0,shot3a:0,shot3m:0,fta:0,ftm:0,ast:0,reb:0,stl:0,tov:0,foul:0,mins:0,count:0};
 games.forEach(g=>{
 s.shot2a+=parseInt(g.shot2a)||0; s.shot2m+=parseInt(g.shot2m)||0;
 s.shot3a+=parseInt(g.shot3a)||0; s.shot3m+=parseInt(g.shot3m)||0;
 s.fta+=parseInt(g.fta)||0; s.ftm+=parseInt(g.ftm)||0;
 s.ast+=parseInt(g.ast)||0; s.reb+=parseInt(g.reb)||0;
 s.stl+=parseInt(g.stl)||0; s.tov+=parseInt(g.tov)||0;
+s.foul+=parseInt(g.foul)||0;
 s.mins+=parseInt(g.playTime)||0; s.count++;
 });
 s.pts=s.shot2m*2+s.shot3m*3+s.ftm;
@@ -106,15 +112,20 @@ return(
 <div style={{background:”#fff”,borderRadius:“8px”,padding:“10px”,marginBottom:6}}>
 <div style={{display:“grid”,gridTemplateColumns:“36px 1fr 1fr”,gap:“5px 8px”,alignItems:“center”}}>
 <span/><span style={{fontSize:11,color:”#888”,textAlign:“center”}}>試投/決定</span><span style={{fontSize:11,color:”#888”,textAlign:“center”}}>成功率</span>
-{[[“2P”,gameStats.shot2m+”/”+gameStats.shot2a,gameStats.p2Pct],[“3P”,gameStats.shot3m+”/”+gameStats.shot3a,gameStats.p3Pct],[“FT”,gameStats.ftm+”/”+gameStats.fta,gameStats.ftPct],[“FG”,(gameStats.shot2m+gameStats.shot3m)+”/”+(gameStats.shot2a+gameStats.shot3a),gameStats.fgPct]].map(([l,v,pct])=>[
+{[
+[“2P”,gameStats.shot2m+”/”+gameStats.shot2a,gameStats.p2Pct],
+[“3P”,gameStats.shot3m+”/”+gameStats.shot3a,gameStats.p3Pct],
+[“FT”,gameStats.ftm+”/”+gameStats.fta,gameStats.ftPct],
+[“FG”,(gameStats.shot2m+gameStats.shot3m)+”/”+(gameStats.shot2a+gameStats.shot3a),gameStats.fgPct]
+].map(([l,v,pct])=>[
 <span key={l+“l”} style={{fontSize:12,fontWeight:500,color:”#333”}}>{l}</span>,
 <span key={l+“v”} style={{fontSize:13,textAlign:“center”,color:”#333”}}>{v}</span>,
 <span key={l+“p”} style={{fontSize:13,textAlign:“center”,color:”#333”}}>{pct!=null?pct+”%”:”-”}</span>
 ])}
 </div>
 </div>
-<div style={{display:“grid”,gridTemplateColumns:“repeat(4,1fr)”,gap:6}}>
-{[[“AST”,gameStats.ast],[“REB”,gameStats.reb],[“STL”,gameStats.stl],[“TO”,gameStats.tov]].map(([l,v])=>(
+<div style={{display:“grid”,gridTemplateColumns:“repeat(5,1fr)”,gap:6}}>
+{[[“AST”,gameStats.ast],[“REB”,gameStats.reb],[“STL”,gameStats.stl],[“TO”,gameStats.tov],[“Foul”,gameStats.foul]].map(([l,v])=>(
 <div key={l} style={{background:”#fff”,borderRadius:“8px”,padding:“8px”,textAlign:“center”}}>
 <p style={{fontSize:11,color:”#888”,margin:“0 0 2px”}}>{l}</p>
 <p style={{fontSize:14,fontWeight:500,color:”#333”,margin:0}}>{v}</p>
@@ -249,7 +260,7 @@ const [statsTab,setStatsTab]=useState(“month”);
 const [parentComment,setParentComment]=useState(””);
 
 useEffect(()=>{
-loadData().then(data=>{setRecords(data);setLoading(false);});
+loadFromSupabase().then(data=>{setRecords(data);setLoading(false);});
 },[]);
 
 const daysInMonth=new Date(calYear,calMonth+1,0).getDate();
@@ -277,7 +288,7 @@ setView(“day”);
 function startEdit(type){
 const r=getRec(sel);
 if(type===“solo”){setSoloForm(r.solo||{drills:[],startTime:””,endTime:””,memo:””});setDrillInput(””);}
-else if(type===“team”) setTeamForm(r.team||{content:””,taught:””,good:””,improve:””,next:””});
+else if(type===“team”) setTeamForm(r.team||{team:””,content:””,taught:””,good:””,improve:””,next:””});
 else{setGamesList(r.games&&r.games.length>0?r.games.map(g=>({…newGame(),…g})):[newGame()]);setDaySummary(r.daySummary||newDaySummary());}
 setEditMode(type);
 }
@@ -289,9 +300,8 @@ if(editMode===“solo”) data={solo:soloForm};
 else if(editMode===“team”) data={team:teamForm};
 else data={games:gamesList,daySummary};
 const newDayData={…(records[sel]||{}),…data};
-const newRecords={…records,[sel]:newDayData};
-await saveData(newRecords);
-setRecords(newRecords);
+await saveToSupabase(sel,newDayData);
+setRecords(prev=>({…prev,[sel]:newDayData}));
 setSaving(false);
 setEditMode(null);
 }
@@ -299,9 +309,8 @@ setEditMode(null);
 async function saveParentComment(){
 setSaving(true);
 const newDayData={…(records[sel]||{}),parentComment};
-const newRecords={…records,[sel]:newDayData};
-await saveData(newRecords);
-setRecords(newRecords);
+await saveToSupabase(sel,newDayData);
+setRecords(prev=>({…prev,[sel]:newDayData}));
 setSaving(false);
 }
 
@@ -310,9 +319,13 @@ setSaving(true);
 const rec={…(records[sel]||{})};
 if(type===“games”){delete rec.games;delete rec.daySummary;}else delete rec[type];
 let newRecords;
-if(Object.keys(rec).length===0){newRecords={…records};delete newRecords[sel];}
-else newRecords={…records,[sel]:rec};
-await saveData(newRecords);
+if(Object.keys(rec).length===0){
+await supabase.from(‘records’).delete().eq(‘date’,sel);
+newRecords={…records};delete newRecords[sel];
+} else {
+await saveToSupabase(sel,rec);
+newRecords={…records,[sel]:rec};
+}
 setRecords(newRecords);
 setSaving(false);
 setEditMode(null);
@@ -373,12 +386,27 @@ if(editMode==="solo") return(
 );
 
 if(editMode==="team"){
-  const fields=[{k:"team",l:"チーム",ph:"チーム名"},{k:"content",l:"練習内容",ph:"今日の練習メニュー"},{k:"taught",l:"教えてもらったこと",ph:"コーチや先輩から"},{k:"good",l:"上手くできたこと",ph:"うまくいったプレー"},{k:"improve",l:"改善すること",ph:"次につながる課題"},{k:"next",l:"次回の練習に向けて",ph:"次回意識したいこと"}];
+  const fields=[
+    {k:"team",l:"チーム",ph:"チーム名"},
+    {k:"content",l:"練習内容",ph:"今日の練習メニュー"},
+    {k:"taught",l:"教えてもらったこと",ph:"コーチや先輩から"},
+    {k:"good",l:"上手くできたこと",ph:"うまくいったプレー"},
+    {k:"improve",l:"改善すること",ph:"次につながる課題"},
+    {k:"next",l:"次回の練習に向けて",ph:"次回意識したいこと"}
+  ];
   return(
     <div style={{padding:"1rem",maxWidth:520,margin:"0 auto"}}>
       <button onClick={()=>setEditMode(null)} style={btnS()}>← 戻る</button>
       <h2 style={{fontSize:18,fontWeight:500,margin:"1rem 0 1.25rem",color:"#333"}}>チーム練習日記</h2>
-      {fields.map(({k,l,ph})=>(<div key={k}><label style={lbl}>{l}</label><textarea rows={3} placeholder={ph} value={teamForm[k]||""} onChange={e=>setTeamForm(f=>({...f,[k]:e.target.value}))} style={{...taS,marginBottom:12}} /></div>))}
+      {fields.map(({k,l,ph})=>(
+        <div key={k}>
+          <label style={lbl}>{l}</label>
+          {k==="team"
+            ?<input placeholder={ph} value={teamForm[k]||""} onChange={e=>setTeamForm(f=>({...f,[k]:e.target.value}))} style={{...inpS,marginBottom:12}} />
+            :<textarea rows={3} placeholder={ph} value={teamForm[k]||""} onChange={e=>setTeamForm(f=>({...f,[k]:e.target.value}))} style={{...taS,marginBottom:12}} />
+          }
+        </div>
+      ))}
       <div style={{display:"flex",gap:8,marginTop:4}}>
         <button onClick={saveEdit} disabled={saving} style={btnS({background:COLOR.team,color:"#fff",border:"none",flex:1,opacity:saving?0.7:1})}>{saving?"保存中...":"保存"}</button>
         {rec.team&&<button onClick={()=>delRecord("team")} disabled={saving} style={btnS({color:"#e24b4a",borderColor:"#e24b4a"})}>削除</button>}
@@ -443,6 +471,7 @@ return(
         <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
           <span style={{width:8,height:8,borderRadius:"50%",background:COLOR.team,flexShrink:0}}/>
           <span style={{fontWeight:500,fontSize:15,color:"#333"}}>チーム練習</span>
+          {rec.team.team&&<span style={{fontSize:13,color:"#888",marginLeft:"auto"}}>{rec.team.team}</span>}
         </div>
         {[{k:"content",l:"練習内容"},{k:"taught",l:"教えてもらったこと"},{k:"good",l:"上手くできたこと"},{k:"improve",l:"改善すること"},{k:"next",l:"次回に向けて"}].map(({k,l})=>rec.team[k]?<div key={k} style={{marginBottom:6}}><p style={{fontSize:12,color:"#888",margin:"0 0 2px"}}>{l}</p><p style={{fontSize:13,color:"#333",margin:0,whiteSpace:"pre-wrap"}}>{rec.team[k]}</p></div>:null)}
       </div>
@@ -484,7 +513,7 @@ return(
 
     <div style={{marginTop:16,borderTop:"0.5px solid #ddd",paddingTop:14}}>
       <p style={{fontSize:13,fontWeight:500,color:COLOR.team,margin:"0 0 8px"}}>両親からのコメント</p>
-      {rec.parentComment&&!editMode&&(
+      {rec.parentComment&&(
         <div style={{background:"#EBF5FF",borderRadius:"8px",padding:"10px 12px",marginBottom:10,border:`0.5px solid ${COLOR.team}44`}}>
           <p style={{fontSize:13,color:"#333",margin:0,whiteSpace:"pre-wrap"}}>{rec.parentComment}</p>
         </div>
