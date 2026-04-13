@@ -2,11 +2,13 @@ import { useState, useEffect } from "react";
 import { supabase } from './supabase.js';
 
 const COLOR = { solo: "#1D9E75", team: "#378ADD", game: "#D85A30", train: "#7F77DD", both: "#888" };
-const TEAM_OPTIONS = ["キングス","エンジョイ","キングダム","その他"];
+const TEAM_OPTIONS = ["キングス","エンジョイ","キングダム","T's","その他"];
 
 function newGame(){return {opponent:"",myScore:"",oppScore:"",playTime:"",shot2a:"",shot2m:"",shot3a:"",shot3m:"",fta:"",ftm:"",ast:"",reb:"",stl:"",tov:"",foul:"",good:"",reflect:""};};
 function newDaySummary(){return {memo:"",good:"",reflect:"",next:""};};
 function newMonthGoal(){return {basketball:"",study:"",life:"",training:""};};
+function newSolo(){return {drills:[],startTime:"",endTime:"",memo:""};};
+function newTeam(){return {teamName:"",startTime:"",endTime:"",content:"",taught:"",good:"",improve:"",next:""};};
 
 async function loadFromSupabase(){
   try{
@@ -41,8 +43,6 @@ const inpS={width:"100%",boxSizing:"border-box",padding:"7px 10px",borderRadius:
 
 function fmtDate(y,m,d){return `${y}-${String(m+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`;}
 function calcMins(start,end){if(!start||!end)return 0;const[sh,sm]=start.split(":").map(Number);const[eh,em]=end.split(":").map(Number);const d=(eh*60+em)-(sh*60+sm);return d>0?d:0;}
-function calcSoloMins(solo){return calcMins(solo?.startTime,solo?.endTime);}
-function calcTeamMins(team){return calcMins(team?.startTime,team?.endTime);}
 function minsToLabel(m){if(!m)return "0分";const h=Math.floor(m/60),mn=m%60;return h>0?`${h}時間${mn>0?mn+"分":""}`:`${mn}分`;}
 
 function sumGames(games){
@@ -71,8 +71,10 @@ function computeStats(records,year,month){
     const[y,m]=ds.split("-").map(Number);
     const match=month!=null?(y===year&&m===month+1):(y===year);
     if(!match) return;
-    if(rec.solo){soloDay++;soloMins+=calcSoloMins(rec.solo);}
-    if(rec.team){teamDay++;teamMins+=calcTeamMins(rec.team);}
+    const solos=rec.solos||[];
+    if(solos.length>0){soloDay++;solos.forEach(s=>{soloMins+=calcMins(s.startTime,s.endTime);});}
+    const teams=rec.teams||[];
+    if(teams.length>0){teamDay++;teams.forEach(t=>{teamMins+=calcMins(t.startTime,t.endTime);});}
     if(rec.training?.menus?.length>0) trainDay++;
     if(rec.games?.length>0){gameCount+=rec.games.length;gamesAll.push(...rec.games);}
   });
@@ -83,7 +85,7 @@ function StatBox({label,value,onChange}){
   return(
     <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:4}}>
       <span style={{fontSize:11,color:"#666",textAlign:"center",lineHeight:1.3}}>{label}</span>
-      <input type="number" min="0" value={value||""} onChange={e=>onChange(e.target.value)} style={{...numInp,fontSize:15}} />
+      <input type="number" min="0" value={value||""} onChange={e=>onChange(e.target.value)} style={{...numInp,fontSize:15}}/>
     </div>
   );
 }
@@ -155,6 +157,80 @@ function StatBlock({title,color,stats}){
   );
 }
 
+function SoloForm({solo,index,total,onChange,onDelete,soloMenus}){
+  const[drillInput,setDrillInput]=useState("");
+  const mins=calcMins(solo.startTime,solo.endTime)||null;
+  function addDrill(){const v=drillInput.trim();if(!v)return;onChange({...solo,drills:[...(solo.drills||[]),v]});setDrillInput("");}
+  function removeDrill(i){onChange({...solo,drills:solo.drills.filter((_,j)=>j!==i)});}
+  return(
+    <div style={{border:`1px solid ${COLOR.solo}44`,borderRadius:"12px",padding:"14px",marginBottom:14,background:"#fff"}}>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
+        <span style={{fontSize:14,fontWeight:500,color:COLOR.solo}}>第{index+1}回</span>
+        {total>1&&<button onClick={onDelete} style={{...btnS(),fontSize:12,padding:"4px 10px",color:"#888"}}>削除</button>}
+      </div>
+      <label style={lbl}>練習時間</label>
+      <div style={{display:"grid",gridTemplateColumns:"1fr auto 1fr",gap:6,alignItems:"center",marginBottom:4}}>
+        <input type="time" value={solo.startTime||""} onChange={e=>onChange({...solo,startTime:e.target.value})} style={timeInp}/>
+        <span style={{fontSize:13,color:"#888",textAlign:"center"}}>〜</span>
+        <input type="time" value={solo.endTime||""} onChange={e=>onChange({...solo,endTime:e.target.value})} style={timeInp}/>
+      </div>
+      {mins?<p style={{fontSize:12,color:"#888",margin:"0 0 12px",textAlign:"right"}}>{mins}分間</p>:<div style={{marginBottom:12}}/>}
+      <label style={lbl}>練習メニュー</label>
+      <div style={{display:"flex",gap:6,marginBottom:8}}>
+        <input placeholder="例：レッグスルー50本" value={drillInput} onChange={e=>setDrillInput(e.target.value)} onKeyDown={e=>e.key==="Enter"&&addDrill()} style={{flex:1,padding:"7px 10px",borderRadius:"8px",border:"0.5px solid #ccc",background:"#fff",color:"#333",fontSize:14}}/>
+        <button onClick={addDrill} style={btnS({borderColor:COLOR.solo,color:COLOR.solo,padding:"7px 14px"})}>追加</button>
+      </div>
+      {soloMenus.length>0&&(
+        <div style={{display:"flex",flexWrap:"wrap",gap:5,marginBottom:10}}>
+          {soloMenus.map((m,i)=>(
+            <button key={i} onClick={()=>onChange({...solo,drills:[...(solo.drills||[]),m]})} style={{fontSize:12,padding:"4px 10px",borderRadius:12,border:`0.5px solid ${COLOR.solo}`,background:"#E1F5EE",color:COLOR.solo,cursor:"pointer"}}>{m}</button>
+          ))}
+        </div>
+      )}
+      {(solo.drills||[]).length>0&&(
+        <div style={{display:"flex",flexDirection:"column",gap:4,marginBottom:12}}>
+          {solo.drills.map((d,i)=>(
+            <div key={i} style={{display:"flex",alignItems:"center",gap:8,background:"#f5f5f3",borderRadius:"8px",padding:"7px 10px"}}>
+              <span style={{fontSize:13,color:"#333",flex:1}}>{d}</span>
+              <button onClick={()=>removeDrill(i)} style={{background:"none",border:"none",cursor:"pointer",color:"#aaa",fontSize:16,lineHeight:1,padding:"0 2px"}}>×</button>
+            </div>
+          ))}
+        </div>
+      )}
+      <label style={lbl}>メモ・感想</label>
+      <textarea rows={3} placeholder="気づきや課題など" value={solo.memo||""} onChange={e=>onChange({...solo,memo:e.target.value})} style={taS}/>
+    </div>
+  );
+}
+
+function TeamForm({team,index,total,onChange,onDelete}){
+  const mins=calcMins(team.startTime,team.endTime)||null;
+  return(
+    <div style={{border:`1px solid ${COLOR.team}44`,borderRadius:"12px",padding:"14px",marginBottom:14,background:"#fff"}}>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
+        <span style={{fontSize:14,fontWeight:500,color:COLOR.team}}>第{index+1}回</span>
+        {total>1&&<button onClick={onDelete} style={{...btnS(),fontSize:12,padding:"4px 10px",color:"#888"}}>削除</button>}
+      </div>
+      <label style={lbl}>チーム</label>
+      <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:14}}>
+        {TEAM_OPTIONS.map(t=>(
+          <button key={t} onClick={()=>onChange({...team,teamName:t})} style={{padding:"7px 16px",fontSize:13,borderRadius:20,border:"0.5px solid",borderColor:team.teamName===t?COLOR.team:"#ccc",background:team.teamName===t?"#EBF5FF":"#fff",color:team.teamName===t?COLOR.team:"#666",cursor:"pointer",fontWeight:team.teamName===t?500:400}}>{t}</button>
+        ))}
+      </div>
+      <label style={lbl}>練習時間</label>
+      <div style={{display:"grid",gridTemplateColumns:"1fr auto 1fr",gap:6,alignItems:"center",marginBottom:4}}>
+        <input type="time" value={team.startTime||""} onChange={e=>onChange({...team,startTime:e.target.value})} style={timeInp}/>
+        <span style={{fontSize:13,color:"#888",textAlign:"center"}}>〜</span>
+        <input type="time" value={team.endTime||""} onChange={e=>onChange({...team,endTime:e.target.value})} style={timeInp}/>
+      </div>
+      {mins?<p style={{fontSize:12,color:"#888",margin:"0 0 12px",textAlign:"right"}}>{mins}分間</p>:<div style={{marginBottom:12}}/>}
+      {[{k:"content",l:"練習内容",ph:"今日の練習メニュー"},{k:"taught",l:"教えてもらったこと",ph:"コーチや先輩から"},{k:"good",l:"上手くできたこと",ph:"うまくいったプレー"},{k:"improve",l:"改善すること",ph:"次につながる課題"},{k:"next",l:"次回の練習に向けて",ph:"次回意識したいこと"}].map(({k,l,ph})=>(
+        <div key={k}><label style={lbl}>{l}</label><textarea rows={2} placeholder={ph} value={team[k]||""} onChange={e=>onChange({...team,[k]:e.target.value})} style={{...taS,marginBottom:10}}/></div>
+      ))}
+    </div>
+  );
+}
+
 function GameForm({game,onChange,onDelete,index,total}){
   const p2m=parseInt(game.shot2m)||0,p3m=parseInt(game.shot3m)||0,ftm=parseInt(game.ftm)||0;
   const calcPts=p2m*2+p3m*3+ftm;
@@ -168,24 +244,24 @@ function GameForm({game,onChange,onDelete,index,total}){
         {total>1&&<button onClick={onDelete} style={{...btnS(),fontSize:12,padding:"4px 10px",color:"#888"}}>削除</button>}
       </div>
       <label style={lbl}>対戦相手</label>
-      <input placeholder="チーム名" value={game.opponent||""} onChange={e=>sf("opponent")(e.target.value)} style={{...inpS,marginBottom:12}} />
+      <input placeholder="チーム名" value={game.opponent||""} onChange={e=>sf("opponent")(e.target.value)} style={{...inpS,marginBottom:12}}/>
       <label style={lbl}>試合結果（得点入力）</label>
       <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12}}>
-        <div style={{flex:1}}><p style={{fontSize:11,color:"#888",margin:"0 0 4px",textAlign:"center"}}>自チーム</p><input type="number" min="0" placeholder="0" value={game.myScore||""} onChange={e=>sf("myScore")(e.target.value)} style={{...numInp,fontSize:20,fontWeight:500,padding:"8px"}} /></div>
+        <div style={{flex:1}}><p style={{fontSize:11,color:"#888",margin:"0 0 4px",textAlign:"center"}}>自チーム</p><input type="number" min="0" placeholder="0" value={game.myScore||""} onChange={e=>sf("myScore")(e.target.value)} style={{...numInp,fontSize:20,fontWeight:500,padding:"8px"}}/></div>
         <span style={{fontSize:18,color:"#bbb",marginTop:16}}>–</span>
-        <div style={{flex:1}}><p style={{fontSize:11,color:"#888",margin:"0 0 4px",textAlign:"center"}}>相手チーム</p><input type="number" min="0" placeholder="0" value={game.oppScore||""} onChange={e=>sf("oppScore")(e.target.value)} style={{...numInp,fontSize:20,fontWeight:500,padding:"8px"}} /></div>
+        <div style={{flex:1}}><p style={{fontSize:11,color:"#888",margin:"0 0 4px",textAlign:"center"}}>相手チーム</p><input type="number" min="0" placeholder="0" value={game.oppScore||""} onChange={e=>sf("oppScore")(e.target.value)} style={{...numInp,fontSize:20,fontWeight:500,padding:"8px"}}/></div>
         {res&&<span style={{marginTop:16,fontSize:12,padding:"4px 10px",borderRadius:12,background:res==="勝ち"?"#EAF3DE":res==="負け"?"#FCEBEB":"#F1EFE8",color:res==="勝ち"?"#3B6D11":res==="負け"?"#A32D2D":"#5F5E5A",whiteSpace:"nowrap"}}>{res}</span>}
       </div>
       <label style={lbl}>出場時間（分）</label>
-      <input type="number" min="0" placeholder="例：20" value={game.playTime||""} onChange={e=>sf("playTime")(e.target.value)} style={{...inpS,marginBottom:12}} />
+      <input type="number" min="0" placeholder="例：20" value={game.playTime||""} onChange={e=>sf("playTime")(e.target.value)} style={{...inpS,marginBottom:12}}/>
       <p style={{...lbl,marginBottom:8}}>シュート統計</p>
       <div style={{background:"#f5f5f3",borderRadius:"8px",padding:"10px",marginBottom:12}}>
         <div style={{display:"grid",gridTemplateColumns:"40px 1fr 1fr",gap:"6px 10px",alignItems:"center",marginBottom:8}}>
           <span/><span style={{fontSize:11,color:"#888",textAlign:"center"}}>試投数</span><span style={{fontSize:11,color:"#888",textAlign:"center"}}>決定数</span>
           {[["2P","shot2a","shot2m"],["3P","shot3a","shot3m"],["FT","fta","ftm"]].map(([label,ka,km])=>[
             <span key={label} style={{fontSize:13,fontWeight:500,color:"#333"}}>{label}</span>,
-            <input key={ka} type="number" min="0" value={game[ka]||""} onChange={e=>sf(ka)(e.target.value)} style={numInp} />,
-            <input key={km} type="number" min="0" value={game[km]||""} onChange={e=>sf(km)(e.target.value)} style={numInp} />
+            <input key={ka} type="number" min="0" value={game[ka]||""} onChange={e=>sf(ka)(e.target.value)} style={numInp}/>,
+            <input key={km} type="number" min="0" value={game[km]||""} onChange={e=>sf(km)(e.target.value)} style={numInp}/>
           ])}
         </div>
         <div style={{borderTop:"0.5px solid #ddd",paddingTop:8,display:"flex",justifyContent:"flex-end",gap:6,alignItems:"center"}}>
@@ -195,52 +271,16 @@ function GameForm({game,onChange,onDelete,index,total}){
       </div>
       <p style={{...lbl,marginBottom:8}}>スタッツ</p>
       <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:8,marginBottom:12}}>
-        <StatBox label="AST" value={game.ast} onChange={sf("ast")} />
-        <StatBox label="REB" value={game.reb} onChange={sf("reb")} />
-        <StatBox label="STL" value={game.stl} onChange={sf("stl")} />
-        <StatBox label="TO" value={game.tov} onChange={sf("tov")} />
-        <StatBox label="Foul" value={game.foul} onChange={sf("foul")} />
+        <StatBox label="AST" value={game.ast} onChange={sf("ast")}/>
+        <StatBox label="REB" value={game.reb} onChange={sf("reb")}/>
+        <StatBox label="STL" value={game.stl} onChange={sf("stl")}/>
+        <StatBox label="TO" value={game.tov} onChange={sf("tov")}/>
+        <StatBox label="Foul" value={game.foul} onChange={sf("foul")}/>
       </div>
       <label style={lbl}>この試合の上手くいったこと</label>
-      <textarea rows={2} placeholder="この試合で良かったプレーなど" value={game.good||""} onChange={e=>sf("good")(e.target.value)} style={{...taS,marginBottom:10}} />
+      <textarea rows={2} placeholder="この試合で良かったプレーなど" value={game.good||""} onChange={e=>sf("good")(e.target.value)} style={{...taS,marginBottom:10}}/>
       <label style={lbl}>この試合の反省点</label>
-      <textarea rows={2} placeholder="この試合で改善したいこと" value={game.reflect||""} onChange={e=>sf("reflect")(e.target.value)} style={taS} />
-    </div>
-  );
-}
-
-function GameCard({game,index}){
-  const p2m=parseInt(game.shot2m)||0,p3m=parseInt(game.shot3m)||0,ftm=parseInt(game.ftm)||0;
-  const calcPts=p2m*2+p3m*3+ftm;
-  const myS=parseInt(game.myScore),oppS=parseInt(game.oppScore);
-  const res=(game.myScore!==""&&game.oppScore!==""&&!isNaN(myS)&&!isNaN(oppS))?(myS>oppS?"勝ち":myS<oppS?"負け":"引き分け"):null;
-  return(
-    <div style={{marginBottom:10}}>
-      <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8,flexWrap:"wrap"}}>
-        <span style={{fontSize:13,fontWeight:500,color:COLOR.game}}>第{index+1}試合</span>
-        {game.opponent&&<span style={{fontSize:13,color:"#888"}}>vs {game.opponent}</span>}
-        {(game.myScore!==""||game.oppScore!=="")&&<span style={{fontSize:13,color:"#333",fontWeight:500}}>{game.myScore||0} – {game.oppScore||0}</span>}
-        {res&&<span style={{fontSize:11,padding:"2px 8px",borderRadius:10,background:res==="勝ち"?"#EAF3DE":res==="負け"?"#FCEBEB":"#F1EFE8",color:res==="勝ち"?"#3B6D11":res==="負け"?"#A32D2D":"#5F5E5A"}}>{res}</span>}
-        {game.playTime&&<span style={{fontSize:12,color:"#888",marginLeft:"auto"}}>{game.playTime}分</span>}
-      </div>
-      <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:4,marginBottom:4}}>
-        {[["2P",(game.shot2m||0)+"/"+(game.shot2a||0)],["3P",(game.shot3m||0)+"/"+(game.shot3a||0)],["FT",(game.ftm||0)+"/"+(game.fta||0)],["得点",calcPts+"点"],["AST",game.ast||"-"]].map(([l,v])=>(
-          <div key={l} style={{background:"#fff",borderRadius:"8px",padding:"5px 4px",textAlign:"center"}}>
-            <p style={{fontSize:10,color:"#888",margin:"0 0 2px"}}>{l}</p>
-            <p style={{fontSize:13,fontWeight:500,color:"#333",margin:0}}>{v}</p>
-          </div>
-        ))}
-      </div>
-      <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:4,marginBottom:6}}>
-        {[["REB",game.reb],["STL",game.stl],["TO",game.tov],["Foul",game.foul]].map(([l,v])=>(
-          <div key={l} style={{background:"#fff",borderRadius:"8px",padding:"5px 4px",textAlign:"center"}}>
-            <p style={{fontSize:10,color:"#888",margin:"0 0 2px"}}>{l}</p>
-            <p style={{fontSize:13,fontWeight:500,color:"#333",margin:0}}>{v||"-"}</p>
-          </div>
-        ))}
-      </div>
-      {game.good&&<div style={{marginBottom:4}}><span style={{fontSize:11,color:"#888"}}>上手くいったこと　</span><span style={{fontSize:13,color:"#333",whiteSpace:"pre-wrap"}}>{game.good}</span></div>}
-      {game.reflect&&<div><span style={{fontSize:11,color:"#888"}}>反省点　</span><span style={{fontSize:13,color:"#333",whiteSpace:"pre-wrap"}}>{game.reflect}</span></div>}
+      <textarea rows={2} placeholder="この試合で改善したいこと" value={game.reflect||""} onChange={e=>sf("reflect")(e.target.value)} style={taS}/>
     </div>
   );
 }
@@ -255,7 +295,7 @@ function MenuListPage({title,color,menus,onSave}){
     <div style={{padding:"1rem",maxWidth:520,margin:"0 auto"}}>
       <h2 style={{fontSize:18,fontWeight:500,margin:"0 0 1.25rem",color:"#333"}}>{title}</h2>
       <div style={{display:"flex",gap:6,marginBottom:12}}>
-        <input placeholder="メニューを入力" value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>e.key==="Enter"&&add()} style={{flex:1,padding:"7px 10px",borderRadius:"8px",border:"0.5px solid #ccc",background:"#fff",color:"#333",fontSize:14}} />
+        <input placeholder="メニューを入力" value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>e.key==="Enter"&&add()} style={{flex:1,padding:"7px 10px",borderRadius:"8px",border:"0.5px solid #ccc",background:"#fff",color:"#333",fontSize:14}}/>
         <button onClick={add} style={btnS({borderColor:color,color:color,padding:"7px 14px"})}>追加</button>
       </div>
       {items.length>0?(
@@ -285,15 +325,15 @@ export default function App(){
   const[calMonth,setCalMonth]=useState(today.getMonth());
   const[sel,setSel]=useState(null);
   const[editMode,setEditMode]=useState(null);
-  const[soloForm,setSoloForm]=useState({});
-  const[teamForm,setTeamForm]=useState({});
+  const[solosList,setSolosList]=useState([newSolo()]);
+  const[teamsList,setTeamsList]=useState([newTeam()]);
   const[trainForm,setTrainForm]=useState({menus:[]});
+  const[trainInput,setTrainInput]=useState("");
   const[gamesList,setGamesList]=useState([newGame()]);
   const[daySummary,setDaySummary]=useState(newDaySummary());
-  const[drillInput,setDrillInput]=useState("");
-  const[trainInput,setTrainInput]=useState("");
   const[statsTab,setStatsTab]=useState("month");
   const[parentComment,setParentComment]=useState("");
+  const[editingParentComment,setEditingParentComment]=useState(false);
   const[editingGoal,setEditingGoal]=useState(false);
   const[goalForm,setGoalForm]=useState(newMonthGoal());
 
@@ -322,24 +362,31 @@ export default function App(){
 
   function dotColor(ds){
     const r=getRec(ds);
-    const types=[!!r.solo,!!r.team,!!(r.games?.length>0),!!(r.training?.menus?.length>0)].filter(Boolean).length;
-    if(types>=2) return COLOR.both;
-    if(r.solo) return COLOR.solo;
-    if(r.team) return COLOR.team;
-    if(r.games?.length>0) return COLOR.game;
-    if(r.training?.menus?.length>0) return COLOR.train;
+    const hasSolo=!!(r.solos?.length>0);
+    const hasTeam=!!(r.teams?.length>0);
+    const hasGame=!!(r.games?.length>0);
+    const hasTrain=!!(r.training?.menus?.length>0);
+    const count=[hasSolo,hasTeam,hasGame,hasTrain].filter(Boolean).length;
+    if(count>=2) return COLOR.both;
+    if(hasSolo) return COLOR.solo;
+    if(hasTeam) return COLOR.team;
+    if(hasGame) return COLOR.game;
+    if(hasTrain) return COLOR.train;
     return null;
   }
 
   function openDay(day){
     const ds=fmtDate(calYear,calMonth,day);
-    setSel(ds);setParentComment(records[ds]?.parentComment||"");setEditMode(null);setView("day");
+    setSel(ds);
+    setParentComment(records[ds]?.parentComment||"");
+    setEditingParentComment(!records[ds]?.parentComment);
+    setEditMode(null);setView("day");
   }
 
   function startEdit(type){
     const r=getRec(sel);
-    if(type==="solo"){setSoloForm(r.solo||{drills:[],startTime:"",endTime:"",memo:""});setDrillInput("");}
-    else if(type==="team") setTeamForm(r.team||{teamName:"",startTime:"",endTime:"",content:"",taught:"",good:"",improve:"",next:""});
+    if(type==="solo") setSolosList(r.solos?.length>0?r.solos.map(s=>({...newSolo(),...s})):[newSolo()]);
+    else if(type==="team") setTeamsList(r.teams?.length>0?r.teams.map(t=>({...newTeam(),...t})):[newTeam()]);
     else if(type==="training"){setTrainForm(r.training||{menus:[]});setTrainInput("");}
     else{setGamesList(r.games?.length>0?r.games.map(g=>({...newGame(),...g})):[newGame()]);setDaySummary(r.daySummary||newDaySummary());}
     setEditMode(type);
@@ -348,8 +395,8 @@ export default function App(){
   async function saveEdit(){
     setSaving(true);
     let data;
-    if(editMode==="solo") data={solo:soloForm};
-    else if(editMode==="team") data={team:teamForm};
+    if(editMode==="solo") data={solos:solosList};
+    else if(editMode==="team") data={teams:teamsList};
     else if(editMode==="training") data={training:trainForm};
     else data={games:gamesList,daySummary};
     const newRec={...(records[sel]||{}),...data};
@@ -368,12 +415,15 @@ export default function App(){
     setSaving(true);
     const rec={...(records[sel]||{})};
     if(type==="games"){delete rec.games;delete rec.daySummary;}else delete rec[type];
+    let newRecords;
     if(!Object.keys(rec).length){
       await supabase.from('records').delete().eq('date',sel);
-      setAppData(p=>{const nr={...p.records};delete nr[sel];return{...p,records:nr};});
+      newRecords={...records};delete newRecords[sel];
     } else {
       await persistDay(sel,rec);
+      newRecords={...records,[sel]:rec};
     }
+    setAppData(p=>({...p,records:newRecords}));
     setSaving(false);setEditMode(null);
   }
 
@@ -383,13 +433,9 @@ export default function App(){
     setEditingGoal(false);
   }
 
-  function addDrill(){const v=drillInput.trim();if(!v)return;setSoloForm(f=>({...f,drills:[...(f.drills||[]),v]}));setDrillInput("");}
-  function removeDrill(i){setSoloForm(f=>({...f,drills:f.drills.filter((_,j)=>j!==i)}));}
   function addTrain(){const v=trainInput.trim();if(!v)return;setTrainForm(f=>({...f,menus:[...(f.menus||[]),v]}));setTrainInput("");}
   function removeTrain(i){setTrainForm(f=>({...f,menus:f.menus.filter((_,j)=>j!==i)}));}
 
-  const soloMinsPreview=calcMins(soloForm.startTime,soloForm.endTime)||null;
-  const teamMinsPreview=calcMins(teamForm.startTime,teamForm.endTime)||null;
   const prevM=()=>{if(calMonth===0){setCalYear(y=>y-1);setCalMonth(11);}else setCalMonth(m=>m-1);};
   const nextM=()=>{if(calMonth===11){setCalYear(y=>y+1);setCalMonth(0);}else setCalMonth(m=>m+1);};
   const wdays=["日","月","火","水","木","金","土"];
@@ -423,7 +469,7 @@ export default function App(){
     <div style={{padding:"1rem",maxWidth:520,margin:"0 auto"}}>
       {menuOpen&&<HamburgerMenu/>}
       <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:20}}><HamBtn/><span style={{fontSize:16,fontWeight:500,color:"#333"}}>自主練メニュー</span></div>
-      <MenuListPage title="" color={COLOR.solo} menus={appData.soloMenus||[]} onSave={async items=>await persistMeta({soloMenus:items})} />
+      <MenuListPage title="" color={COLOR.solo} menus={appData.soloMenus||[]} onSave={async items=>await persistMeta({soloMenus:items})}/>
     </div>
   );
 
@@ -431,7 +477,7 @@ export default function App(){
     <div style={{padding:"1rem",maxWidth:520,margin:"0 auto"}}>
       {menuOpen&&<HamburgerMenu/>}
       <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:20}}><HamBtn/><span style={{fontSize:16,fontWeight:500,color:"#333"}}>トレーニングメニュー</span></div>
-      <MenuListPage title="" color={COLOR.train} menus={appData.trainMenus||[]} onSave={async items=>await persistMeta({trainMenus:items})} />
+      <MenuListPage title="" color={COLOR.train} menus={appData.trainMenus||[]} onSave={async items=>await persistMeta({trainMenus:items})}/>
     </div>
   );
 
@@ -442,47 +488,23 @@ export default function App(){
     const games=rec.games||[];
     const ds2=rec.daySummary||{};
     const totals=games.length>0?sumGames(games):null;
-    const recSoloMins=calcSoloMins(rec.solo);
-    const recTeamMins=calcTeamMins(rec.team);
+    const solos=rec.solos||[];
+    const teams=rec.teams||[];
 
     if(editMode==="solo") return(
       <div style={{padding:"1rem",maxWidth:520,margin:"0 auto"}}>
         <button onClick={()=>setEditMode(null)} style={btnS()}>← 戻る</button>
         <h2 style={{fontSize:18,fontWeight:500,margin:"1rem 0 1.25rem",color:"#333"}}>自主練を記録</h2>
-        <label style={lbl}>練習時間</label>
-        <div style={{display:"grid",gridTemplateColumns:"1fr auto 1fr",gap:6,alignItems:"center",marginBottom:4}}>
-          <input type="time" value={soloForm.startTime||""} onChange={e=>setSoloForm(f=>({...f,startTime:e.target.value}))} style={timeInp} />
-          <span style={{fontSize:13,color:"#888",textAlign:"center"}}>〜</span>
-          <input type="time" value={soloForm.endTime||""} onChange={e=>setSoloForm(f=>({...f,endTime:e.target.value}))} style={timeInp} />
-        </div>
-        {soloMinsPreview?<p style={{fontSize:12,color:"#888",margin:"0 0 14px",textAlign:"right"}}>{soloMinsPreview}分間</p>:<div style={{marginBottom:14}}/>}
-        <label style={lbl}>練習メニュー</label>
-        <div style={{display:"flex",gap:6,marginBottom:8}}>
-          <input placeholder="例：レッグスルー50本" value={drillInput} onChange={e=>setDrillInput(e.target.value)} onKeyDown={e=>e.key==="Enter"&&addDrill()} style={{flex:1,padding:"7px 10px",borderRadius:"8px",border:"0.5px solid #ccc",background:"#fff",color:"#333",fontSize:14}} />
-          <button onClick={addDrill} style={btnS({borderColor:COLOR.solo,color:COLOR.solo,padding:"7px 14px"})}>追加</button>
-        </div>
-        {(appData.soloMenus||[]).length>0&&(
-          <div style={{display:"flex",flexWrap:"wrap",gap:5,marginBottom:10}}>
-            {appData.soloMenus.map((m,i)=>(
-              <button key={i} onClick={()=>setSoloForm(f=>({...f,drills:[...(f.drills||[]),m]}))} style={{fontSize:12,padding:"4px 10px",borderRadius:12,border:`0.5px solid ${COLOR.solo}`,background:"#E1F5EE",color:COLOR.solo,cursor:"pointer"}}>{m}</button>
-            ))}
-          </div>
-        )}
-        {(soloForm.drills||[]).length>0&&(
-          <div style={{display:"flex",flexDirection:"column",gap:4,marginBottom:14}}>
-            {soloForm.drills.map((d,i)=>(
-              <div key={i} style={{display:"flex",alignItems:"center",gap:8,background:"#f5f5f3",borderRadius:"8px",padding:"7px 10px"}}>
-                <span style={{fontSize:13,color:"#333",flex:1}}>{d}</span>
-                <button onClick={()=>removeDrill(i)} style={{background:"none",border:"none",cursor:"pointer",color:"#aaa",fontSize:16,lineHeight:1,padding:"0 2px"}}>×</button>
-              </div>
-            ))}
-          </div>
-        )}
-        <label style={lbl}>メモ・感想</label>
-        <textarea rows={4} placeholder="気づきや課題など" value={soloForm.memo||""} onChange={e=>setSoloForm(f=>({...f,memo:e.target.value}))} style={{...taS,marginBottom:16}} />
+        {solosList.map((s,i)=>(
+          <SoloForm key={i} solo={s} index={i} total={solosList.length}
+            onChange={updated=>setSolosList(list=>list.map((x,j)=>j===i?updated:x))}
+            onDelete={()=>setSolosList(list=>list.filter((_,j)=>j!==i))}
+            soloMenus={appData.soloMenus||[]}/>
+        ))}
+        <button onClick={()=>setSolosList(l=>[...l,newSolo()])} style={btnS({width:"100%",marginBottom:16,borderColor:COLOR.solo,color:COLOR.solo})}>+ 自主練を追加</button>
         <div style={{display:"flex",gap:8}}>
           <button onClick={saveEdit} disabled={saving} style={btnS({background:COLOR.solo,color:"#fff",border:"none",flex:1,opacity:saving?0.7:1})}>{saving?"保存中...":"保存"}</button>
-          {rec.solo&&<button onClick={()=>delRecord("solo")} disabled={saving} style={btnS({color:"#e24b4a",borderColor:"#e24b4a"})}>削除</button>}
+          {solos.length>0&&<button onClick={()=>delRecord("solos")} disabled={saving} style={btnS({color:"#e24b4a",borderColor:"#e24b4a"})}>削除</button>}
         </div>
       </div>
     );
@@ -491,25 +513,15 @@ export default function App(){
       <div style={{padding:"1rem",maxWidth:520,margin:"0 auto"}}>
         <button onClick={()=>setEditMode(null)} style={btnS()}>← 戻る</button>
         <h2 style={{fontSize:18,fontWeight:500,margin:"1rem 0 1.25rem",color:"#333"}}>チーム練習日記</h2>
-        <label style={lbl}>チーム</label>
-        <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:14}}>
-          {TEAM_OPTIONS.map(t=>(
-            <button key={t} onClick={()=>setTeamForm(f=>({...f,teamName:t}))} style={{padding:"7px 16px",fontSize:13,borderRadius:20,border:"0.5px solid",borderColor:teamForm.teamName===t?COLOR.team:"#ccc",background:teamForm.teamName===t?"#EBF5FF":"#fff",color:teamForm.teamName===t?COLOR.team:"#666",cursor:"pointer",fontWeight:teamForm.teamName===t?500:400}}>{t}</button>
-          ))}
-        </div>
-        <label style={lbl}>練習時間</label>
-        <div style={{display:"grid",gridTemplateColumns:"1fr auto 1fr",gap:6,alignItems:"center",marginBottom:4}}>
-          <input type="time" value={teamForm.startTime||""} onChange={e=>setTeamForm(f=>({...f,startTime:e.target.value}))} style={timeInp} />
-          <span style={{fontSize:13,color:"#888",textAlign:"center"}}>〜</span>
-          <input type="time" value={teamForm.endTime||""} onChange={e=>setTeamForm(f=>({...f,endTime:e.target.value}))} style={timeInp} />
-        </div>
-        {teamMinsPreview?<p style={{fontSize:12,color:"#888",margin:"0 0 14px",textAlign:"right"}}>{teamMinsPreview}分間</p>:<div style={{marginBottom:14}}/>}
-        {[{k:"content",l:"練習内容",ph:"今日の練習メニュー"},{k:"taught",l:"教えてもらったこと",ph:"コーチや先輩から"},{k:"good",l:"上手くできたこと",ph:"うまくいったプレー"},{k:"improve",l:"改善すること",ph:"次につながる課題"},{k:"next",l:"次回の練習に向けて",ph:"次回意識したいこと"}].map(({k,l,ph})=>(
-          <div key={k}><label style={lbl}>{l}</label><textarea rows={3} placeholder={ph} value={teamForm[k]||""} onChange={e=>setTeamForm(f=>({...f,[k]:e.target.value}))} style={{...taS,marginBottom:12}} /></div>
+        {teamsList.map((t,i)=>(
+          <TeamForm key={i} team={t} index={i} total={teamsList.length}
+            onChange={updated=>setTeamsList(list=>list.map((x,j)=>j===i?updated:x))}
+            onDelete={()=>setTeamsList(list=>list.filter((_,j)=>j!==i))}/>
         ))}
-        <div style={{display:"flex",gap:8,marginTop:4}}>
+        <button onClick={()=>setTeamsList(l=>[...l,newTeam()])} style={btnS({width:"100%",marginBottom:16,borderColor:COLOR.team,color:COLOR.team})}>+ チーム練習を追加</button>
+        <div style={{display:"flex",gap:8}}>
           <button onClick={saveEdit} disabled={saving} style={btnS({background:COLOR.team,color:"#fff",border:"none",flex:1,opacity:saving?0.7:1})}>{saving?"保存中...":"保存"}</button>
-          {rec.team&&<button onClick={()=>delRecord("team")} disabled={saving} style={btnS({color:"#e24b4a",borderColor:"#e24b4a"})}>削除</button>}
+          {teams.length>0&&<button onClick={()=>delRecord("teams")} disabled={saving} style={btnS({color:"#e24b4a",borderColor:"#e24b4a"})}>削除</button>}
         </div>
       </div>
     );
@@ -520,7 +532,7 @@ export default function App(){
         <h2 style={{fontSize:18,fontWeight:500,margin:"1rem 0 1.25rem",color:"#333"}}>トレーニングを記録</h2>
         <label style={lbl}>メニュー</label>
         <div style={{display:"flex",gap:6,marginBottom:8}}>
-          <input placeholder="例：腕立て30回" value={trainInput} onChange={e=>setTrainInput(e.target.value)} onKeyDown={e=>e.key==="Enter"&&addTrain()} style={{flex:1,padding:"7px 10px",borderRadius:"8px",border:"0.5px solid #ccc",background:"#fff",color:"#333",fontSize:14}} />
+          <input placeholder="例：腕立て30回" value={trainInput} onChange={e=>setTrainInput(e.target.value)} onKeyDown={e=>e.key==="Enter"&&addTrain()} style={{flex:1,padding:"7px 10px",borderRadius:"8px",border:"0.5px solid #ccc",background:"#fff",color:"#333",fontSize:14}}/>
           <button onClick={addTrain} style={btnS({borderColor:COLOR.train,color:COLOR.train,padding:"7px 14px"})}>追加</button>
         </div>
         {(appData.trainMenus||[]).length>0&&(
@@ -554,18 +566,18 @@ export default function App(){
         {gamesList.map((g,i)=>(
           <GameForm key={i} game={g} index={i} total={gamesList.length}
             onChange={updated=>setGamesList(list=>list.map((x,j)=>j===i?updated:x))}
-            onDelete={()=>setGamesList(list=>list.filter((_,j)=>j!==i))} />
+            onDelete={()=>setGamesList(list=>list.filter((_,j)=>j!==i))}/>
         ))}
         <button onClick={()=>setGamesList(l=>[...l,newGame()])} style={btnS({width:"100%",marginBottom:20,borderColor:COLOR.game,color:COLOR.game})}>+ 試合を追加</button>
         <div style={{borderTop:`2px solid ${COLOR.game}44`,paddingTop:16,marginBottom:16}}>
           <p style={{fontSize:15,fontWeight:500,color:COLOR.game,margin:"0 0 14px"}}>今日の試合まとめ</p>
           {[{k:"memo",l:"今日の試合の感想",ph:"全体を通して感じたこと"},{k:"good",l:"今日の試合の上手くいったこと",ph:"今日良かったプレーや成長"},{k:"reflect",l:"今日の試合の反省点",ph:"今日改善すべきだったこと"},{k:"next",l:"次回に向けて",ph:"次の試合で意識したいこと"}].map(({k,l,ph})=>(
-            <div key={k}><label style={lbl}>{l}</label><textarea rows={2} placeholder={ph} value={daySummary[k]||""} onChange={e=>setDaySummary(f=>({...f,[k]:e.target.value}))} style={{...taS,marginBottom:12}} /></div>
+            <div key={k}><label style={lbl}>{l}</label><textarea rows={2} placeholder={ph} value={daySummary[k]||""} onChange={e=>setDaySummary(f=>({...f,[k]:e.target.value}))} style={{...taS,marginBottom:12}}/></div>
           ))}
         </div>
         <div style={{display:"flex",gap:8}}>
           <button onClick={saveEdit} disabled={saving} style={btnS({background:COLOR.game,color:"#fff",border:"none",flex:1,opacity:saving?0.7:1})}>{saving?"保存中...":"保存"}</button>
-          {rec.games?.length>0&&<button onClick={()=>delRecord("games")} disabled={saving} style={btnS({color:"#e24b4a",borderColor:"#e24b4a"})}>削除</button>}
+          {games.length>0&&<button onClick={()=>delRecord("games")} disabled={saving} style={btnS({color:"#e24b4a",borderColor:"#e24b4a"})}>削除</button>}
         </div>
       </div>
     );
@@ -577,7 +589,7 @@ export default function App(){
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:8}}>
           {[{type:"solo",label:"自主練",color:COLOR.solo},{type:"team",label:"チーム練習",color:COLOR.team}].map(({type,label,color})=>(
             <button key={type} onClick={()=>startEdit(type)} style={btnS({borderColor:color,color:color,fontSize:12,padding:"8px 4px",textAlign:"center"})}>
-              {rec[type]?`${label}を編集`:`+ ${label}`}
+              {type==="solo"?solos.length>0?"自主練を編集":"+ 自主練":teams.length>0?"チーム練習を編集":"+ チーム練習"}
             </button>
           ))}
         </div>
@@ -589,27 +601,43 @@ export default function App(){
           ))}
         </div>
 
-        {rec.solo&&(
+        {solos.length>0&&(
           <div style={cardS}>
-            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
+            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
               <span style={{width:8,height:8,borderRadius:"50%",background:COLOR.solo,flexShrink:0}}/>
               <span style={{fontWeight:500,fontSize:15,color:"#333"}}>自主練</span>
-              {rec.solo.startTime&&rec.solo.endTime&&<span style={{fontSize:12,color:"#888",marginLeft:"auto"}}>{rec.solo.startTime}〜{rec.solo.endTime}{recSoloMins>0?` (${recSoloMins}分)`:""}</span>}
+              <span style={{fontSize:12,color:"#888",marginLeft:"auto"}}>{solos.length}回</span>
             </div>
-            {(rec.solo.drills||[]).length>0&&<div style={{display:"flex",flexDirection:"column",gap:3,marginBottom:8}}>{rec.solo.drills.map((d,i)=><div key={i} style={{display:"flex",alignItems:"center",gap:6}}><span style={{width:5,height:5,borderRadius:"50%",background:COLOR.solo,flexShrink:0}}/><span style={{fontSize:13,color:"#333"}}>{d}</span></div>)}</div>}
-            {rec.solo.memo&&<p style={{fontSize:13,color:"#666",margin:0,whiteSpace:"pre-wrap"}}>{rec.solo.memo}</p>}
+            {solos.map((s,i)=>(
+              <div key={i}>
+                {i>0&&<div style={{borderTop:"0.5px solid #ddd",margin:"10px 0"}}/>}
+                {solos.length>1&&<p style={{fontSize:12,fontWeight:500,color:COLOR.solo,margin:"0 0 6px"}}>第{i+1}回</p>}
+                {s.startTime&&s.endTime&&<p style={{fontSize:12,color:"#888",margin:"0 0 6px",textAlign:"right"}}>{s.startTime}〜{s.endTime}{calcMins(s.startTime,s.endTime)>0?` (${calcMins(s.startTime,s.endTime)}分)`:""}</p>}
+                {(s.drills||[]).length>0&&<div style={{display:"flex",flexDirection:"column",gap:3,marginBottom:6}}>{s.drills.map((d,j)=><div key={j} style={{display:"flex",alignItems:"center",gap:6}}><span style={{width:5,height:5,borderRadius:"50%",background:COLOR.solo,flexShrink:0}}/><span style={{fontSize:13,color:"#333"}}>{d}</span></div>)}</div>}
+                {s.memo&&<p style={{fontSize:13,color:"#666",margin:0,whiteSpace:"pre-wrap"}}>{s.memo}</p>}
+              </div>
+            ))}
           </div>
         )}
 
-        {rec.team&&(
+        {teams.length>0&&(
           <div style={cardS}>
-            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
+            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
               <span style={{width:8,height:8,borderRadius:"50%",background:COLOR.team,flexShrink:0}}/>
               <span style={{fontWeight:500,fontSize:15,color:"#333"}}>チーム練習</span>
-              {rec.team.teamName&&<span style={{fontSize:12,padding:"2px 8px",borderRadius:10,background:"#EBF5FF",color:COLOR.team,marginLeft:4}}>{rec.team.teamName}</span>}
-              {rec.team.startTime&&rec.team.endTime&&<span style={{fontSize:12,color:"#888",marginLeft:"auto"}}>{rec.team.startTime}〜{rec.team.endTime}{recTeamMins>0?` (${recTeamMins}分)`:""}</span>}
+              <span style={{fontSize:12,color:"#888",marginLeft:"auto"}}>{teams.length}回</span>
             </div>
-            {[{k:"content",l:"練習内容"},{k:"taught",l:"教えてもらったこと"},{k:"good",l:"上手くできたこと"},{k:"improve",l:"改善すること"},{k:"next",l:"次回に向けて"}].map(({k,l})=>rec.team[k]?<div key={k} style={{marginBottom:6}}><p style={{fontSize:12,color:"#888",margin:"0 0 2px"}}>{l}</p><p style={{fontSize:13,color:"#333",margin:0,whiteSpace:"pre-wrap"}}>{rec.team[k]}</p></div>:null)}
+            {teams.map((t,i)=>(
+              <div key={i}>
+                {i>0&&<div style={{borderTop:"0.5px solid #ddd",margin:"10px 0"}}/>}
+                <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
+                  {teams.length>1&&<span style={{fontSize:12,fontWeight:500,color:COLOR.team}}>第{i+1}回</span>}
+                  {t.teamName&&<span style={{fontSize:12,padding:"2px 8px",borderRadius:10,background:"#EBF5FF",color:COLOR.team}}>{t.teamName}</span>}
+                  {t.startTime&&t.endTime&&<span style={{fontSize:12,color:"#888",marginLeft:"auto"}}>{t.startTime}〜{t.endTime}{calcMins(t.startTime,t.endTime)>0?` (${calcMins(t.startTime,t.endTime)}分)`:""}</span>}
+                </div>
+                {[{k:"content",l:"練習内容"},{k:"taught",l:"教えてもらったこと"},{k:"good",l:"上手くできたこと"},{k:"improve",l:"改善すること"},{k:"next",l:"次回に向けて"}].map(({k,l})=>t[k]?<div key={k} style={{marginBottom:6}}><p style={{fontSize:12,color:"#888",margin:"0 0 2px"}}>{l}</p><p style={{fontSize:13,color:"#333",margin:0,whiteSpace:"pre-wrap"}}>{t[k]}</p></div>:null)}
+              </div>
+            ))}
           </div>
         )}
 
@@ -635,14 +663,43 @@ export default function App(){
             {totals&&games.length>1&&(
               <div style={{background:"#fff",borderRadius:"8px",padding:"10px 12px",marginBottom:14,border:`0.5px solid ${COLOR.game}44`}}>
                 <p style={{fontSize:12,fontWeight:500,color:COLOR.game,margin:"0 0 8px"}}>本日の合計</p>
-                <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:4,marginBottom:4}}>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:4}}>
                   {[["出場",totals.mins>0?totals.mins+"分":"-"],["得点",totals.pts+"点"],["2P",totals.shot2m+"/"+totals.shot2a],["3P",totals.shot3m+"/"+totals.shot3a]].map(([l,v])=>(
                     <div key={l} style={{textAlign:"center"}}><p style={{fontSize:10,color:"#888",margin:"0 0 2px"}}>{l}</p><p style={{fontSize:14,fontWeight:500,color:"#333",margin:0}}>{v}</p></div>
                   ))}
                 </div>
               </div>
             )}
-            {games.map((g,i)=>(<div key={i}>{i>0&&<div style={{borderTop:"0.5px solid #ddd",margin:"10px 0"}}/>}<GameCard game={g} index={i} /></div>))}
+            {games.map((g,i)=>{
+              const p2m=parseInt(g.shot2m)||0,p3m=parseInt(g.shot3m)||0,ftm=parseInt(g.ftm)||0;
+              const calcPts=p2m*2+p3m*3+ftm;
+              const myS=parseInt(g.myScore),oppS=parseInt(g.oppScore);
+              const res=(g.myScore!==""&&g.oppScore!==""&&!isNaN(myS)&&!isNaN(oppS))?(myS>oppS?"勝ち":myS<oppS?"負け":"引き分け"):null;
+              return(
+                <div key={i}>
+                  {i>0&&<div style={{borderTop:"0.5px solid #ddd",margin:"10px 0"}}/>}
+                  <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8,flexWrap:"wrap"}}>
+                    <span style={{fontSize:13,fontWeight:500,color:COLOR.game}}>第{i+1}試合</span>
+                    {g.opponent&&<span style={{fontSize:13,color:"#888"}}>vs {g.opponent}</span>}
+                    {(g.myScore!==""||g.oppScore!=="")&&<span style={{fontSize:13,color:"#333",fontWeight:500}}>{g.myScore||0} – {g.oppScore||0}</span>}
+                    {res&&<span style={{fontSize:11,padding:"2px 8px",borderRadius:10,background:res==="勝ち"?"#EAF3DE":res==="負け"?"#FCEBEB":"#F1EFE8",color:res==="勝ち"?"#3B6D11":res==="負け"?"#A32D2D":"#5F5E5A"}}>{res}</span>}
+                    {g.playTime&&<span style={{fontSize:12,color:"#888",marginLeft:"auto"}}>{g.playTime}分</span>}
+                  </div>
+                  <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:4,marginBottom:4}}>
+                    {[["2P",(g.shot2m||0)+"/"+(g.shot2a||0)],["3P",(g.shot3m||0)+"/"+(g.shot3a||0)],["FT",(g.ftm||0)+"/"+(g.fta||0)],["得点",calcPts+"点"],["AST",g.ast||"-"]].map(([l,v])=>(
+                      <div key={l} style={{background:"#fff",borderRadius:"8px",padding:"5px 4px",textAlign:"center"}}><p style={{fontSize:10,color:"#888",margin:"0 0 2px"}}>{l}</p><p style={{fontSize:13,fontWeight:500,color:"#333",margin:0}}>{v}</p></div>
+                    ))}
+                  </div>
+                  <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:4,marginBottom:6}}>
+                    {[["REB",g.reb],["STL",g.stl],["TO",g.tov],["Foul",g.foul]].map(([l,v])=>(
+                      <div key={l} style={{background:"#fff",borderRadius:"8px",padding:"5px 4px",textAlign:"center"}}><p style={{fontSize:10,color:"#888",margin:"0 0 2px"}}>{l}</p><p style={{fontSize:13,fontWeight:500,color:"#333",margin:0}}>{v||"-"}</p></div>
+                    ))}
+                  </div>
+                  {g.good&&<div style={{marginBottom:4}}><span style={{fontSize:11,color:"#888"}}>上手くいったこと　</span><span style={{fontSize:13,color:"#333",whiteSpace:"pre-wrap"}}>{g.good}</span></div>}
+                  {g.reflect&&<div><span style={{fontSize:11,color:"#888"}}>反省点　</span><span style={{fontSize:13,color:"#333",whiteSpace:"pre-wrap"}}>{g.reflect}</span></div>}
+                </div>
+              );
+            })}
             {(ds2.memo||ds2.good||ds2.reflect||ds2.next)&&(
               <div style={{borderTop:`1.5px solid ${COLOR.game}33`,marginTop:12,paddingTop:12}}>
                 <p style={{fontSize:13,fontWeight:500,color:COLOR.game,margin:"0 0 10px"}}>今日の試合まとめ</p>
@@ -652,13 +709,26 @@ export default function App(){
           </div>
         )}
 
-        {!rec.solo&&!rec.team&&!rec.training&&games.length===0&&<p style={{fontSize:14,color:"#bbb",textAlign:"center",marginTop:32}}>まだ記録がありません</p>}
+        {solos.length===0&&teams.length===0&&!rec.training&&games.length===0&&<p style={{fontSize:14,color:"#bbb",textAlign:"center",marginTop:32}}>まだ記録がありません</p>}
 
         <div style={{marginTop:16,borderTop:"0.5px solid #ddd",paddingTop:14}}>
-          <p style={{fontSize:13,fontWeight:500,color:COLOR.team,margin:"0 0 8px"}}>両親からのコメント</p>
-          {rec.parentComment&&<div style={{background:"#EBF5FF",borderRadius:"8px",padding:"10px 12px",marginBottom:10,border:`0.5px solid ${COLOR.team}44`}}><p style={{fontSize:13,color:"#333",margin:0,whiteSpace:"pre-wrap"}}>{rec.parentComment}</p></div>}
-          <textarea rows={3} placeholder="お父さん・お母さんからのコメントを入力..." value={parentComment} onChange={e=>setParentComment(e.target.value)} style={{...taS,marginBottom:8,borderColor:COLOR.team+"66"}} />
-          <button onClick={saveParentComment} disabled={saving} style={btnS({background:COLOR.team,color:"#fff",border:"none",width:"100%",opacity:saving?0.7:1})}>{saving?"保存中...":"コメントを保存"}</button>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
+            <p style={{fontSize:13,fontWeight:500,color:COLOR.team,margin:0}}>両親からのコメント</p>
+            {rec.parentComment&&!editingParentComment&&<button onClick={()=>{setParentComment(rec.parentComment);setEditingParentComment(true);}} style={btnS({fontSize:12,padding:"4px 10px"})}>編集</button>}
+          </div>
+          {rec.parentComment&&!editingParentComment?(
+            <div style={{background:"#EBF5FF",borderRadius:"8px",padding:"10px 12px",border:`0.5px solid ${COLOR.team}44`}}>
+              <p style={{fontSize:13,color:"#333",margin:0,whiteSpace:"pre-wrap"}}>{rec.parentComment}</p>
+            </div>
+          ):(
+            <div>
+              <textarea rows={3} placeholder="お父さん・お母さんからのコメントを入力..." value={parentComment} onChange={e=>setParentComment(e.target.value)} style={{...taS,marginBottom:8,borderColor:COLOR.team+"66"}}/>
+              <div style={{display:"flex",gap:8}}>
+                <button onClick={async()=>{await saveParentComment();setEditingParentComment(false);}} disabled={saving} style={btnS({background:COLOR.team,color:"#fff",border:"none",flex:1,opacity:saving?0.7:1})}>{saving?"保存中...":"コメントを保存"}</button>
+                {rec.parentComment&&<button onClick={()=>setEditingParentComment(false)} style={btnS()}>キャンセル</button>}
+              </div>
+            </div>
+          )}
         </div>
       </div>
     );
@@ -686,7 +756,7 @@ export default function App(){
             {[{k:"basketball",l:"🏀 バスケ"},{k:"study",l:"📚 勉強"},{k:"life",l:"🌱 生活"},{k:"training",l:"💪 トレーニング"}].map(({k,l})=>(
               <div key={k} style={{marginBottom:8}}>
                 <label style={{...lbl,marginBottom:2}}>{l}</label>
-                <input value={goalForm[k]||""} onChange={e=>setGoalForm(f=>({...f,[k]:e.target.value}))} placeholder="目標を入力" style={{...inpS,fontSize:13,padding:"6px 10px"}} />
+                <input value={goalForm[k]||""} onChange={e=>setGoalForm(f=>({...f,[k]:e.target.value}))} placeholder="目標を入力" style={{...inpS,fontSize:13,padding:"6px 10px"}}/>
               </div>
             ))}
             <div style={{display:"flex",gap:8,marginTop:8}}>
@@ -740,8 +810,8 @@ export default function App(){
           ))}
         </div>
         {statsTab==="month"
-          ?<StatBlock title={`${calYear}年${calMonth+1}月`} color={COLOR.solo} stats={monthStats} />
-          :<StatBlock title={`${calYear}年`} color={COLOR.team} stats={yearStats} />
+          ?<StatBlock title={`${calYear}年${calMonth+1}月`} color={COLOR.solo} stats={monthStats}/>
+          :<StatBlock title={`${calYear}年`} color={COLOR.team} stats={yearStats}/>
         }
       </div>
     </div>
