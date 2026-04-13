@@ -72,6 +72,7 @@ function sumGames(games){
 function computeStats(records,year,month){
   let soloDay=0,soloMins=0,teamDay=0,teamMins=0,trainDay=0,gameCount=0;
   const gamesAll=[];
+  const teamBreakdown={};
   Object.entries(records).forEach(([ds,rec])=>{
     const[y,m]=ds.split("-").map(Number);
     const match=month!=null?(y===year&&m===month+1):(y===year);
@@ -79,11 +80,21 @@ function computeStats(records,year,month){
     const solos=rec.solos||[];
     if(solos.length>0){soloDay++;solos.forEach(s=>{soloMins+=calcMins(s.startTime,s.endTime);});}
     const teams=rec.teams||[];
-    if(teams.length>0){teamDay++;teams.forEach(t=>{teamMins+=calcMins(t.startTime,t.endTime);});}
+    if(teams.length>0){
+      teamDay++;
+      teams.forEach(t=>{
+        const mins=calcMins(t.startTime,t.endTime);
+        teamMins+=mins;
+        const name=t.teamName||"未設定";
+        if(!teamBreakdown[name]) teamBreakdown[name]={count:0,mins:0};
+        teamBreakdown[name].count++;
+        teamBreakdown[name].mins+=mins;
+      });
+    }
     if(rec.training?.menus?.length>0) trainDay++;
     if(rec.games?.length>0){gameCount+=rec.games.length;gamesAll.push(...rec.games);}
   });
-  return{soloDay,soloMins,teamDay,teamMins,trainDay,gameCount,gameStats:gamesAll.length>0?sumGames(gamesAll):null};
+  return{soloDay,soloMins,teamDay,teamMins,teamBreakdown,trainDay,gameCount,gameStats:gamesAll.length>0?sumGames(gamesAll):null};
 }
 
 function StatBox({label,value,onChange}){
@@ -96,7 +107,8 @@ function StatBox({label,value,onChange}){
 }
 
 function StatBlock({title,color,stats}){
-  const{soloDay,soloMins,teamDay,teamMins,trainDay,gameCount,gameStats}=stats;
+  const{soloDay,soloMins,teamDay,teamMins,teamBreakdown,trainDay,gameCount,gameStats}=stats;
+  const teamEntries=Object.entries(teamBreakdown||{}).sort((a,b)=>b[1].count-a[1].count);
   return(
     <div style={{background:"#f5f5f3",borderRadius:"12px",padding:"14px",marginBottom:12}}>
       <p style={{fontSize:13,fontWeight:500,color,margin:"0 0 12px"}}>{title}</p>
@@ -115,7 +127,7 @@ function StatBlock({title,color,stats}){
         <p style={{fontSize:15,fontWeight:500,color:"#333",margin:0}}>{trainDay}日</p>
       </div>
       <p style={{fontSize:11,color:"#888",margin:"0 0 6px",fontWeight:500}}>チーム練習</p>
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:10}}>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:teamEntries.length>0?8:10}}>
         {[["練習日数",teamDay+"日"],["合計時間",minsToLabel(teamMins)]].map(([l,v])=>(
           <div key={l} style={{background:"#fff",borderRadius:"8px",padding:"8px",textAlign:"center"}}>
             <p style={{fontSize:11,color:"#888",margin:"0 0 2px"}}>{l}</p>
@@ -123,6 +135,17 @@ function StatBlock({title,color,stats}){
           </div>
         ))}
       </div>
+      {teamEntries.length>0&&(
+        <div style={{marginBottom:10}}>
+          {teamEntries.map(([name,{count,mins}])=>(
+            <div key={name} style={{display:"flex",alignItems:"center",gap:8,background:"#fff",borderRadius:"8px",padding:"7px 10px",marginBottom:4}}>
+              <span style={{fontSize:12,fontWeight:500,color:COLOR.team,minWidth:70}}>{name}</span>
+              <span style={{fontSize:12,color:"#888"}}>{count}回</span>
+              <span style={{fontSize:12,color:"#888",marginLeft:"auto"}}>{minsToLabel(mins)}</span>
+            </div>
+          ))}
+        </div>
+      )}
       {gameStats?(
         <div>
           <p style={{fontSize:11,color:"#888",margin:"0 0 6px",fontWeight:500}}>試合</p>
@@ -424,7 +447,7 @@ export default function App(){
     if(!Object.keys(rec).length){
       await supabase.from('records').delete().eq('date',sel);
       newRecords={...records};delete newRecords[sel];
-    } else {
+    }else{
       await persistDay(sel,rec);
       newRecords={...records,[sel]:rec};
     }
