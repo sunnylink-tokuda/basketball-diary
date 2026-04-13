@@ -17,34 +17,12 @@ async function loadFromSupabase(){
     const result={records:{},monthGoals:{},soloMenus:[],trainMenus:[]};
     data.forEach(row=>{
       if(row.date==='__meta__') Object.assign(result,row.data);
-      else {
-        const rec=row.data;
-
-        // 古い solo → solos に変換
-        if(rec.solo && !rec.solos){
-          rec.solos=[rec.solo];
-          delete rec.solo;
-        }
-
-        // 古い team → teams に変換
-        if(rec.team && !rec.teams){
-          rec.teams=[rec.team];
-          delete rec.team;
-        }
-
+      else{
+        const rec={...row.data};
+        if(rec.solo&&!rec.solos){rec.solos=[rec.solo];delete rec.solo;}
+        if(rec.team&&!rec.teams){rec.teams=[rec.team];delete rec.team;}
         result.records[row.date]=rec;
       }
-    });
-    return result;
-  }catch{return{records:{},monthGoals:{},soloMenus:[],trainMenus:[]};}
-}
-  try{
-    const{data,error}=await supabase.from('records').select('*');
-    if(error){console.error(error);return{records:{},monthGoals:{},soloMenus:[],trainMenus:[]};}
-    const result={records:{},monthGoals:{},soloMenus:[],trainMenus:[]};
-    data.forEach(row=>{
-      if(row.date==='__meta__') Object.assign(result,row.data);
-      else result.records[row.date]=row.data;
     });
     return result;
   }catch{return{records:{},monthGoals:{},soloMenus:[],trainMenus:[]};}
