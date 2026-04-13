@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { supabase } from './supabase.js';
 
 const COLOR = { solo: "#1D9E75", team: "#378ADD", game: "#D85A30", train: "#7F77DD", both: "#888" };
-const TEAM_OPTIONS = ["キングス","エンジョイ","キングダム","T's","その他"];
+const TEAM_OPTIONS = ["キングス","EMBC","KINGDOME","T's","その他"];
 
 function newGame(){return {opponent:"",myScore:"",oppScore:"",playTime:"",shot2a:"",shot2m:"",shot3a:"",shot3m:"",fta:"",ftm:"",ast:"",reb:"",stl:"",tov:"",foul:"",good:"",reflect:""};};
 function newDaySummary(){return {memo:"",good:"",reflect:"",next:""};};
