@@ -9,12 +9,16 @@ function newDaySummary(){return {memo:"",good:"",reflect:"",next:""};};
 function newMonthGoal(){return {basketball:"",study:"",life:"",training:""};};
 function newSolo(){return {drills:[],startTime:"",endTime:"",memo:""};};
 function newTeam(){return {teamName:"",startTime:"",endTime:"",content:"",taught:"",good:"",improve:"",next:""};};
+function newMonthReview(){return {
+  goal:{basketball:{good:"",improve:"",next:""},study:{good:"",improve:"",next:""},life:{good:"",improve:"",next:""},training:{good:"",improve:"",next:""}},
+  practice:{solo:{good:"",improve:"",next:""},team:{good:"",improve:"",next:""},game:{good:"",improve:"",next:""}}
+};};
 
 async function loadFromSupabase(){
   try{
     const{data,error}=await supabase.from('records').select('*');
-    if(error){console.error(error);return{records:{},monthGoals:{},soloMenus:[],trainMenus:[]};}
-    const result={records:{},monthGoals:{},soloMenus:[],trainMenus:[]};
+    if(error){console.error(error);return{records:{},monthGoals:{},monthReviews:{},soloMenus:[],trainMenus:[]};}
+    const result={records:{},monthGoals:{},monthReviews:{},soloMenus:[],trainMenus:[]};
     data.forEach(row=>{
       if(row.date==='__meta__') Object.assign(result,row.data);
       else{
@@ -25,7 +29,7 @@ async function loadFromSupabase(){
       }
     });
     return result;
-  }catch{return{records:{},monthGoals:{},soloMenus:[],trainMenus:[]};}
+  }catch{return{records:{},monthGoals:{},monthReviews:{},soloMenus:[],trainMenus:[]};}
 }
 
 async function saveDayToSupabase(date,dayData){
@@ -49,6 +53,8 @@ const inpS={width:"100%",boxSizing:"border-box",padding:"7px 10px",borderRadius:
 function fmtDate(y,m,d){return `${y}-${String(m+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`;}
 function calcMins(start,end){if(!start||!end)return 0;const[sh,sm]=start.split(":").map(Number);const[eh,em]=end.split(":").map(Number);const d=(eh*60+em)-(sh*60+sm);return d>0?d:0;}
 function minsToLabel(m){if(!m)return "0分";const h=Math.floor(m/60),mn=m%60;return h>0?`${h}時間${mn>0?mn+"分":""}`:`${mn}分`;}
+function round1(v){return Math.round(v*10)/10;}
+function getFiscalYear(year,month){return month>=3?year:year-1;}
 
 function sumGames(games){
   const s={shot2a:0,shot2m:0,shot3a:0,shot3m:0,fta:0,ftm:0,ast:0,reb:0,stl:0,tov:0,foul:0,mins:0,count:0};
@@ -69,14 +75,13 @@ function sumGames(games){
   return s;
 }
 
-function computeStats(records,year,month){
+function computeMonthStats(records,year,month){
   let soloDay=0,soloMins=0,teamDay=0,teamMins=0,trainDay=0,gameCount=0;
   const gamesAll=[];
   const teamBreakdown={};
   Object.entries(records).forEach(([ds,rec])=>{
     const[y,m]=ds.split("-").map(Number);
-    const match=month!=null?(y===year&&m===month+1):(y===year);
-    if(!match) return;
+    if(y!==year||m!==month+1) return;
     const solos=rec.solos||[];
     if(solos.length>0){soloDay++;solos.forEach(s=>{soloMins+=calcMins(s.startTime,s.endTime);});}
     const teams=rec.teams||[];
@@ -87,14 +92,81 @@ function computeStats(records,year,month){
         teamMins+=mins;
         const name=t.teamName||"未設定";
         if(!teamBreakdown[name]) teamBreakdown[name]={count:0,mins:0};
-        teamBreakdown[name].count++;
-        teamBreakdown[name].mins+=mins;
+        teamBreakdown[name].count++;teamBreakdown[name].mins+=mins;
       });
     }
     if(rec.training?.menus?.length>0) trainDay++;
     if(rec.games?.length>0){gameCount+=rec.games.length;gamesAll.push(...rec.games);}
   });
   return{soloDay,soloMins,teamDay,teamMins,teamBreakdown,trainDay,gameCount,gameStats:gamesAll.length>0?sumGames(gamesAll):null};
+}
+
+function computeMultiMonthStats(records,monthList){
+  const combined={soloDay:0,soloMins:0,teamDay:0,teamMins:0,trainDay:0,gameCount:0,teamBreakdown:{}};
+  const gamesAll=[];
+  monthList.forEach(({year,month})=>{
+    const s=computeMonthStats(records,year,month);
+    combined.soloDay+=s.soloDay;combined.soloMins+=s.soloMins;
+    combined.teamDay+=s.teamDay;combined.teamMins+=s.teamMins;
+    combined.trainDay+=s.trainDay;combined.gameCount+=s.gameCount;
+    Object.entries(s.teamBreakdown).forEach(([name,v])=>{
+      if(!combined.teamBreakdown[name]) combined.teamBreakdown[name]={count:0,mins:0};
+      combined.teamBreakdown[name].count+=v.count;combined.teamBreakdown[name].mins+=v.mins;
+    });
+    Object.entries(records).forEach(([ds,rec])=>{
+      const[y,m]=ds.split("-").map(Number);
+      if(y===year&&m===month+1&&rec.games?.length>0) gamesAll.push(...rec.games);
+    });
+  });
+  combined.gameStats=gamesAll.length>0?sumGames(gamesAll):null;
+  return combined;
+}
+
+function avgStats(stats,months){
+  if(!months||months===0) return null;
+  const avg={
+    soloDay:round1(stats.soloDay/months),soloMins:round1(stats.soloMins/months),
+    teamDay:round1(stats.teamDay/months),teamMins:round1(stats.teamMins/months),
+    trainDay:round1(stats.trainDay/months),gameCount:round1(stats.gameCount/months),
+    teamBreakdown:{},isAvg:true,monthCount:months,
+  };
+  Object.entries(stats.teamBreakdown||{}).forEach(([name,v])=>{
+    avg.teamBreakdown[name]={count:round1(v.count/months),mins:round1(v.mins/months)};
+  });
+  if(stats.gameStats){
+    const g=stats.gameStats;
+    avg.gameStats={
+      pts:round1(g.pts/months),mins:round1(g.mins/months),count:round1(g.count/months),
+      shot2a:round1(g.shot2a/months),shot2m:round1(g.shot2m/months),
+      shot3a:round1(g.shot3a/months),shot3m:round1(g.shot3m/months),
+      fta:round1(g.fta/months),ftm:round1(g.ftm/months),
+      ast:round1(g.ast/months),reb:round1(g.reb/months),
+      stl:round1(g.stl/months),tov:round1(g.tov/months),foul:round1(g.foul/months),
+      p2Pct:g.p2Pct,p3Pct:g.p3Pct,ftPct:g.ftPct,fgPct:g.fgPct,
+    };
+  }
+  return avg;
+}
+
+function getCompletedMonths(records,baseYear,baseMonth,count){
+  const result=[];
+  let y=baseYear,m=baseMonth;
+  for(let i=0;i<count;i++){
+    m--;if(m<0){m=11;y--;}
+    result.push({year:y,month:m});
+  }
+  return result;
+}
+
+function getFiscalMonths(records,fiscalYear,today){
+  const months=[];
+  for(let m=3;m<=14;m++){
+    const realMonth=m%12;
+    const realYear=m<12?fiscalYear:fiscalYear+1;
+    const isCompleted=realYear<today.getFullYear()||(realYear===today.getFullYear()&&realMonth<today.getMonth());
+    if(isCompleted) months.push({year:realYear,month:realMonth});
+  }
+  return months;
 }
 
 function StatBox({label,value,onChange}){
@@ -106,15 +178,21 @@ function StatBox({label,value,onChange}){
   );
 }
 
-function StatBlock({title,color,stats}){
+function StatBlock({title,color,stats,isAvg}){
+  if(!stats) return(
+    <div style={{background:"#f5f5f3",borderRadius:"12px",padding:"20px",textAlign:"center",marginBottom:12}}>
+      <p style={{fontSize:13,color:"#aaa",margin:0}}>データがまだありません</p>
+    </div>
+  );
   const{soloDay,soloMins,teamDay,teamMins,teamBreakdown,trainDay,gameCount,gameStats}=stats;
   const teamEntries=Object.entries(teamBreakdown||{}).sort((a,b)=>b[1].count-a[1].count);
+  const suffix=isAvg?"／月":"";
   return(
     <div style={{background:"#f5f5f3",borderRadius:"12px",padding:"14px",marginBottom:12}}>
       <p style={{fontSize:13,fontWeight:500,color,margin:"0 0 12px"}}>{title}</p>
       <p style={{fontSize:11,color:"#888",margin:"0 0 6px",fontWeight:500}}>自主練</p>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:10}}>
-        {[["練習日数",soloDay+"日"],["合計時間",minsToLabel(soloMins)]].map(([l,v])=>(
+        {[["練習日数",soloDay+"日"+suffix],["合計時間",minsToLabel(Math.round(soloMins))]].map(([l,v])=>(
           <div key={l} style={{background:"#fff",borderRadius:"8px",padding:"8px",textAlign:"center"}}>
             <p style={{fontSize:11,color:"#888",margin:"0 0 2px"}}>{l}</p>
             <p style={{fontSize:15,fontWeight:500,color:"#333",margin:0}}>{v}</p>
@@ -124,11 +202,11 @@ function StatBlock({title,color,stats}){
       <p style={{fontSize:11,color:"#888",margin:"0 0 6px",fontWeight:500}}>トレーニング</p>
       <div style={{background:"#fff",borderRadius:"8px",padding:"8px",textAlign:"center",marginBottom:10}}>
         <p style={{fontSize:11,color:"#888",margin:"0 0 2px"}}>練習日数</p>
-        <p style={{fontSize:15,fontWeight:500,color:"#333",margin:0}}>{trainDay}日</p>
+        <p style={{fontSize:15,fontWeight:500,color:"#333",margin:0}}>{trainDay}日{suffix}</p>
       </div>
       <p style={{fontSize:11,color:"#888",margin:"0 0 6px",fontWeight:500}}>チーム練習</p>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:teamEntries.length>0?8:10}}>
-        {[["練習日数",teamDay+"日"],["合計時間",minsToLabel(teamMins)]].map(([l,v])=>(
+        {[["練習日数",teamDay+"日"+suffix],["合計時間",minsToLabel(Math.round(teamMins))]].map(([l,v])=>(
           <div key={l} style={{background:"#fff",borderRadius:"8px",padding:"8px",textAlign:"center"}}>
             <p style={{fontSize:11,color:"#888",margin:"0 0 2px"}}>{l}</p>
             <p style={{fontSize:15,fontWeight:500,color:"#333",margin:0}}>{v}</p>
@@ -140,35 +218,63 @@ function StatBlock({title,color,stats}){
           {teamEntries.map(([name,{count,mins}])=>(
             <div key={name} style={{display:"flex",alignItems:"center",gap:8,background:"#fff",borderRadius:"8px",padding:"7px 10px",marginBottom:4}}>
               <span style={{fontSize:12,fontWeight:500,color:COLOR.team,minWidth:70}}>{name}</span>
-              <span style={{fontSize:12,color:"#888"}}>{count}回</span>
-              <span style={{fontSize:12,color:"#888",marginLeft:"auto"}}>{minsToLabel(mins)}</span>
+              <span style={{fontSize:12,color:"#888"}}>{count}回{suffix}</span>
+              <span style={{fontSize:12,color:"#888",marginLeft:"auto"}}>{minsToLabel(Math.round(typeof mins==="number"?mins:0))}</span>
             </div>
           ))}
         </div>
       )}
-      {gameStats?(
+      {gameStats&&gameStats.count>0?(
         <div>
           <p style={{fontSize:11,color:"#888",margin:"0 0 6px",fontWeight:500}}>試合</p>
           <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:6,marginBottom:6}}>
-            {[["試合数",gameCount+"試合"],["出場時間",gameStats.mins+"分"],["得点",gameStats.pts+"点"]].map(([l,v])=>(
+            {[["試合数",Math.round(gameStats.count)+"試合"+(isAvg?"／月":"")],["出場時間",Math.round(gameStats.mins)+"分"],["得点",Math.round(gameStats.pts)+"点"]].map(([l,v])=>(
               <div key={l} style={{background:"#fff",borderRadius:"8px",padding:"8px",textAlign:"center"}}>
                 <p style={{fontSize:11,color:"#888",margin:"0 0 2px"}}>{l}</p>
                 <p style={{fontSize:14,fontWeight:500,color:"#333",margin:0}}>{v}</p>
               </div>
             ))}
           </div>
+          {!isAvg&&gameStats.count>0&&(
+            <div style={{background:"#fff",borderRadius:"8px",padding:"8px 10px",marginBottom:6}}>
+              <p style={{fontSize:11,color:"#888",margin:"0 0 6px",fontWeight:500}}>1試合あたり平均</p>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:4,marginBottom:4}}>
+                {[["出場時間",round1(gameStats.mins/gameStats.count)+"分"],["得点",round1(gameStats.pts/gameStats.count)+"点"]].map(([l,v])=>(
+                  <div key={l} style={{textAlign:"center"}}>
+                    <p style={{fontSize:10,color:"#888",margin:"0 0 2px"}}>{l}</p>
+                    <p style={{fontSize:13,fontWeight:500,color:"#333",margin:0}}>{v}</p>
+                  </div>
+                ))}
+              </div>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:4}}>
+                {[["AST",round1(gameStats.ast/gameStats.count)],["REB",round1(gameStats.reb/gameStats.count)],["STL",round1(gameStats.stl/gameStats.count)],["TO",round1(gameStats.tov/gameStats.count)],["Foul",round1(gameStats.foul/gameStats.count)]].map(([l,v])=>(
+                  <div key={l} style={{textAlign:"center"}}>
+                    <p style={{fontSize:10,color:"#888",margin:"0 0 2px"}}>{l}</p>
+                    <p style={{fontSize:13,fontWeight:500,color:"#333",margin:0}}>{v}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
           <div style={{background:"#fff",borderRadius:"8px",padding:"10px",marginBottom:6}}>
-            <div style={{display:"grid",gridTemplateColumns:"36px 1fr 1fr",gap:"5px 8px",alignItems:"center"}}>
-              <span/><span style={{fontSize:11,color:"#888",textAlign:"center"}}>試投/決定</span><span style={{fontSize:11,color:"#888",textAlign:"center"}}>成功率</span>
-              {[["2P",gameStats.shot2m+"/"+gameStats.shot2a,gameStats.p2Pct],["3P",gameStats.shot3m+"/"+gameStats.shot3a,gameStats.p3Pct],["FT",gameStats.ftm+"/"+gameStats.fta,gameStats.ftPct],["FG",(gameStats.shot2m+gameStats.shot3m)+"/"+(gameStats.shot2a+gameStats.shot3a),gameStats.fgPct]].map(([l,v,pct])=>[
+            <div style={{display:"grid",gridTemplateColumns:"36px 1fr 1fr 1fr",gap:"5px 6px",alignItems:"center"}}>
+              <span/><span style={{fontSize:11,color:"#888",textAlign:"center"}}>試投/決定</span><span style={{fontSize:11,color:"#888",textAlign:"center"}}>成功率</span><span style={{fontSize:11,color:"#888",textAlign:"center"}}>{isAvg?"":"1試合平均"}</span>
+              {[
+                ["2P",Math.round(gameStats.shot2m)+"/"+Math.round(gameStats.shot2a),gameStats.p2Pct,gameStats.count>0?round1(gameStats.shot2m/gameStats.count)+"/"+round1(gameStats.shot2a/gameStats.count):"-"],
+                ["3P",Math.round(gameStats.shot3m)+"/"+Math.round(gameStats.shot3a),gameStats.p3Pct,gameStats.count>0?round1(gameStats.shot3m/gameStats.count)+"/"+round1(gameStats.shot3a/gameStats.count):"-"],
+                ["FT",Math.round(gameStats.ftm)+"/"+Math.round(gameStats.fta),gameStats.ftPct,gameStats.count>0?round1(gameStats.ftm/gameStats.count)+"/"+round1(gameStats.fta/gameStats.count):"-"],
+                ["FG",Math.round(gameStats.shot2m+gameStats.shot3m)+"/"+Math.round(gameStats.shot2a+gameStats.shot3a),gameStats.fgPct,"-"]
+              ].map(([l,v,pct,avg])=>[
                 <span key={l+"l"} style={{fontSize:12,fontWeight:500,color:"#333"}}>{l}</span>,
-                <span key={l+"v"} style={{fontSize:13,textAlign:"center",color:"#333"}}>{v}</span>,
-                <span key={l+"p"} style={{fontSize:13,textAlign:"center",color:"#333"}}>{pct!=null?pct+"%":"-"}</span>
+                <span key={l+"v"} style={{fontSize:12,textAlign:"center",color:"#333"}}>{v}</span>,
+                <span key={l+"p"} style={{fontSize:12,textAlign:"center",color:"#333"}}>{pct!=null?pct+"%":"-"}</span>,
+                <span key={l+"a"} style={{fontSize:12,textAlign:"center",color:"#888"}}>{isAvg?"":avg}</span>
               ])}
             </div>
           </div>
+          <p style={{fontSize:11,color:"#888",margin:"0 0 4px",fontWeight:500}}>合計スタッツ</p>
           <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:6}}>
-            {[["AST",gameStats.ast],["REB",gameStats.reb],["STL",gameStats.stl],["TO",gameStats.tov],["Foul",gameStats.foul]].map(([l,v])=>(
+            {[["AST",Math.round(gameStats.ast)],["REB",Math.round(gameStats.reb)],["STL",Math.round(gameStats.stl)],["TO",Math.round(gameStats.tov)],["Foul",Math.round(gameStats.foul)]].map(([l,v])=>(
               <div key={l} style={{background:"#fff",borderRadius:"8px",padding:"8px",textAlign:"center"}}>
                 <p style={{fontSize:11,color:"#888",margin:"0 0 2px"}}>{l}</p>
                 <p style={{fontSize:13,fontWeight:500,color:"#333",margin:0}}>{v}</p>
@@ -181,6 +287,73 @@ function StatBlock({title,color,stats}){
           <p style={{fontSize:13,color:"#aaa",margin:0}}>試合記録なし</p>
         </div>
       )}
+    </div>
+  );
+}
+
+function ReviewSection({review,onSave,saving}){
+  const[form,setForm]=useState(review||newMonthReview());
+  const[editing,setEditing]=useState(!review);
+  const[open,setOpen]=useState(false);
+  const sf=(section,key,field)=>v=>setForm(f=>({...f,[section]:{...f[section],[key]:{...f[section][key],[field]:v}}}));
+  const goalItems=[{k:"basketball",l:"🏀 バスケ"},{k:"study",l:"📚 勉強"},{k:"life",l:"🌱 生活"},{k:"training",l:"💪 トレーニング"}];
+  const practiceItems=[{k:"solo",l:"🏀 自主練"},{k:"team",l:"👥 チーム練習"},{k:"game",l:"🏆 試合"}];
+  const reviewFields=[{f:"good",l:"できたこと"},{f:"improve",l:"改善すること"},{f:"next",l:"来月に向けて"}];
+  if(!editing){
+    return(
+      <div style={{...cardS,marginTop:4}}>
+        <button onClick={()=>setOpen(o=>!o)} style={{width:"100%",background:"none",border:"none",cursor:"pointer",padding:0,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+          <span style={{fontSize:14,fontWeight:500,color:"#333"}}>月間振り返り</span>
+          <div style={{display:"flex",alignItems:"center",gap:8}}>
+            <button onClick={e=>{e.stopPropagation();setEditing(true);setOpen(true);}} style={btnS({fontSize:12,padding:"4px 10px"})}>編集</button>
+            <span style={{fontSize:16,color:"#888",lineHeight:1}}>{open?"▲":"▼"}</span>
+          </div>
+        </button>
+        {open&&(
+          <div style={{marginTop:12}}>
+            {[{label:"目標振り返り",items:goalItems,section:"goal"},{label:"練習振り返り",items:practiceItems,section:"practice"}].map(({label,items,section})=>(
+              <div key={section} style={{marginBottom:12}}>
+                <p style={{fontSize:12,fontWeight:500,color:"#888",margin:"0 0 8px"}}>{label}</p>
+                {items.map(({k,l})=>{
+                  const d=form[section]?.[k]||{};
+                  if(!d.good&&!d.improve&&!d.next) return null;
+                  return(
+                    <div key={k} style={{marginBottom:8}}>
+                      <p style={{fontSize:12,fontWeight:500,color:"#555",margin:"0 0 4px"}}>{l}</p>
+                      {reviewFields.map(({f,l:fl})=>d[f]?<div key={f} style={{marginBottom:3}}><span style={{fontSize:11,color:"#888"}}>{fl}　</span><span style={{fontSize:13,color:"#333",whiteSpace:"pre-wrap"}}>{d[f]}</span></div>:null)}
+                    </div>
+                  );
+                })}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
+  return(
+    <div style={{...cardS,marginTop:4}}>
+      <p style={{fontSize:14,fontWeight:500,color:"#333",margin:"0 0 14px"}}>月間振り返り</p>
+      {[{label:"目標の振り返り",items:goalItems,section:"goal"},{label:"練習の振り返り",items:practiceItems,section:"practice"}].map(({label,items,section})=>(
+        <div key={section} style={{marginBottom:16}}>
+          <p style={{fontSize:12,fontWeight:500,color:"#888",margin:"0 0 10px",borderBottom:"0.5px solid #ddd",paddingBottom:6}}>{label}</p>
+          {items.map(({k,l})=>(
+            <div key={k} style={{marginBottom:12,background:"#fff",borderRadius:"8px",padding:"10px"}}>
+              <p style={{fontSize:13,fontWeight:500,color:"#555",margin:"0 0 8px"}}>{l}</p>
+              {reviewFields.map(({f,l:fl})=>(
+                <div key={f} style={{marginBottom:6}}>
+                  <label style={{...lbl,fontSize:12,marginBottom:2}}>{fl}</label>
+                  <textarea rows={2} placeholder={fl+"を入力"} value={form[section]?.[k]?.[f]||""} onChange={e=>sf(section,k,f)(e.target.value)} style={{...taS,fontSize:13}}/>
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+      ))}
+      <div style={{display:"flex",gap:8}}>
+        <button onClick={()=>{onSave(form);setEditing(false);}} disabled={saving} style={btnS({background:"#333",color:"#fff",border:"none",flex:1,opacity:saving?0.7:1})}>{saving?"保存中...":"保存"}</button>
+        <button onClick={()=>setEditing(false)} style={btnS()}>キャンセル</button>
+      </div>
     </div>
   );
 }
@@ -321,7 +494,6 @@ function MenuListPage({title,color,menus,onSave}){
   function remove(i){setItems(p=>p.filter((_,j)=>j!==i));setDirty(true);}
   return(
     <div style={{padding:"1rem",maxWidth:520,margin:"0 auto"}}>
-      <h2 style={{fontSize:18,fontWeight:500,margin:"0 0 1.25rem",color:"#333"}}>{title}</h2>
       <div style={{display:"flex",gap:6,marginBottom:12}}>
         <input placeholder="メニューを入力" value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>e.key==="Enter"&&add()} style={{flex:1,padding:"7px 10px",borderRadius:"8px",border:"0.5px solid #ccc",background:"#fff",color:"#333",fontSize:14}}/>
         <button onClick={add} style={btnS({borderColor:color,color:color,padding:"7px 14px"})}>追加</button>
@@ -342,7 +514,7 @@ function MenuListPage({title,color,menus,onSave}){
 }
 
 export default function App(){
-  const[appData,setAppData]=useState({records:{},monthGoals:{},soloMenus:[],trainMenus:[]});
+  const[appData,setAppData]=useState({records:{},monthGoals:{},monthReviews:{},soloMenus:[],trainMenus:[]});
   const[loading,setLoading]=useState(true);
   const[saving,setSaving]=useState(false);
   const[page,setPage]=useState("calendar");
@@ -369,20 +541,29 @@ export default function App(){
 
   const records=appData.records||{};
   const monthGoals=appData.monthGoals||{};
+  const monthReviews=appData.monthReviews||{};
   const goalKey=`${calYear}-${String(calMonth+1).padStart(2,"0")}`;
   const currentGoal=monthGoals[goalKey]||newMonthGoal();
+  const currentReview=monthReviews[goalKey]||null;
 
   async function persistDay(date,dayData){
-    const newRec={...records,[date]:dayData};
-    setAppData(p=>({...p,records:newRec}));
+    setAppData(p=>({...p,records:{...p.records,[date]:dayData}}));
     await saveDayToSupabase(date,dayData);
   }
 
   async function persistMeta(meta){
     const newData={...appData,...meta};
     setAppData(newData);
-    await saveMetaToSupabase({monthGoals:newData.monthGoals,soloMenus:newData.soloMenus,trainMenus:newData.trainMenus});
+    await saveMetaToSupabase({monthGoals:newData.monthGoals,monthReviews:newData.monthReviews,soloMenus:newData.soloMenus,trainMenus:newData.trainMenus});
   }
+
+  const recent3Months=getCompletedMonths(records,calYear,calMonth,3);
+  const recent3Stats=computeMultiMonthStats(records,recent3Months);
+  const recent3Avg=recent3Months.length>0?avgStats(recent3Stats,recent3Months.length):null;
+
+  const fiscalYear=getFiscalYear(calYear,calMonth);
+  const fiscalMonths=getFiscalMonths(records,fiscalYear,today);
+  const fiscalStats=fiscalMonths.length>0?computeMultiMonthStats(records,fiscalMonths):null;
 
   const daysInMonth=new Date(calYear,calMonth+1,0).getDate();
   const firstDay=new Date(calYear,calMonth,1).getDay();
@@ -390,25 +571,17 @@ export default function App(){
 
   function dotColor(ds){
     const r=getRec(ds);
-    const hasSolo=!!(r.solos?.length>0);
-    const hasTeam=!!(r.teams?.length>0);
-    const hasGame=!!(r.games?.length>0);
-    const hasTrain=!!(r.training?.menus?.length>0);
+    const hasSolo=!!(r.solos?.length>0),hasTeam=!!(r.teams?.length>0),hasGame=!!(r.games?.length>0),hasTrain=!!(r.training?.menus?.length>0);
     const count=[hasSolo,hasTeam,hasGame,hasTrain].filter(Boolean).length;
     if(count>=2) return COLOR.both;
-    if(hasSolo) return COLOR.solo;
-    if(hasTeam) return COLOR.team;
-    if(hasGame) return COLOR.game;
-    if(hasTrain) return COLOR.train;
+    if(hasSolo) return COLOR.solo;if(hasTeam) return COLOR.team;if(hasGame) return COLOR.game;if(hasTrain) return COLOR.train;
     return null;
   }
 
   function openDay(day){
     const ds=fmtDate(calYear,calMonth,day);
-    setSel(ds);
-    setParentComment(records[ds]?.parentComment||"");
-    setEditingParentComment(!records[ds]?.parentComment);
-    setEditMode(null);setView("day");
+    setSel(ds);setParentComment(records[ds]?.parentComment||"");
+    setEditingParentComment(!records[ds]?.parentComment);setEditMode(null);setView("day");
   }
 
   function startEdit(type){
@@ -447,7 +620,7 @@ export default function App(){
     if(!Object.keys(rec).length){
       await supabase.from('records').delete().eq('date',sel);
       newRecords={...records};delete newRecords[sel];
-    }else{
+    } else {
       await persistDay(sel,rec);
       newRecords={...records,[sel]:rec};
     }
@@ -461,14 +634,20 @@ export default function App(){
     setEditingGoal(false);
   }
 
+  async function saveReview(form){
+    setSaving(true);
+    const newReviews={...monthReviews,[goalKey]:form};
+    await persistMeta({monthReviews:newReviews});
+    setSaving(false);
+  }
+
   function addTrain(){const v=trainInput.trim();if(!v)return;setTrainForm(f=>({...f,menus:[...(f.menus||[]),v]}));setTrainInput("");}
   function removeTrain(i){setTrainForm(f=>({...f,menus:f.menus.filter((_,j)=>j!==i)}));}
 
   const prevM=()=>{if(calMonth===0){setCalYear(y=>y-1);setCalMonth(11);}else setCalMonth(m=>m-1);};
   const nextM=()=>{if(calMonth===11){setCalYear(y=>y+1);setCalMonth(0);}else setCalMonth(m=>m+1);};
   const wdays=["日","月","火","水","木","金","土"];
-  const monthStats=computeStats(records,calYear,calMonth);
-  const yearStats=computeStats(records,calYear,null);
+  const monthStats=computeMonthStats(records,calYear,calMonth);
 
   if(loading) return(<div style={{padding:"3rem",textAlign:"center",color:"#888",fontSize:15}}>読み込み中...</div>);
 
@@ -762,6 +941,12 @@ export default function App(){
     );
   }
 
+  const tabDefs=[
+    {id:"month",label:`${calMonth+1}月`},
+    {id:"avg3",label:"3ヶ月平均"},
+    {id:"fiscal",label:`${fiscalYear}年度`},
+  ];
+
   return(
     <div style={{padding:"1rem",maxWidth:480,margin:"0 auto"}}>
       {menuOpen&&<HamburgerMenu/>}
@@ -832,15 +1017,23 @@ export default function App(){
       </div>
 
       <div style={{borderTop:"0.5px solid #ddd",paddingTop:16}}>
-        <div style={{display:"flex",gap:6,marginBottom:14}}>
-          {[{id:"month",label:`${calMonth+1}月の集計`},{id:"year",label:`${calYear}年の集計`}].map(({id,label})=>(
-            <button key={id} onClick={()=>setStatsTab(id)} style={{...btnS(),flex:1,fontWeight:statsTab===id?500:400,borderColor:statsTab===id?"#888":"#ccc",background:statsTab===id?"#f5f5f3":"#fff"}}>{label}</button>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:4,marginBottom:14}}>
+          {tabDefs.map(({id,label})=>(
+            <button key={id} onClick={()=>setStatsTab(id)} style={{...btnS(),fontSize:12,padding:"7px 4px",fontWeight:statsTab===id?500:400,borderColor:statsTab===id?"#888":"#ccc",background:statsTab===id?"#f5f5f3":"#fff"}}>{label}</button>
           ))}
         </div>
-        {statsTab==="month"
-          ?<StatBlock title={`${calYear}年${calMonth+1}月`} color={COLOR.solo} stats={monthStats}/>
-          :<StatBlock title={`${calYear}年`} color={COLOR.team} stats={yearStats}/>
-        }
+        {statsTab==="month"&&<StatBlock title={`${calYear}年${calMonth+1}月の集計`} color={COLOR.solo} stats={monthStats}/>}
+        {statsTab==="avg3"&&(
+          recent3Avg
+            ?<StatBlock title={`直近3ヶ月平均（${recent3Months.length}ヶ月分）`} color="#9B59B6" stats={recent3Avg} isAvg={true}/>
+            :<div style={{background:"#f5f5f3",borderRadius:"12px",padding:"20px",textAlign:"center",marginBottom:12}}><p style={{fontSize:13,color:"#aaa",margin:0}}>前月以前のデータが必要です</p></div>
+        )}
+        {statsTab==="fiscal"&&(
+          fiscalStats
+            ?<StatBlock title={`${fiscalYear}年度（4月〜3月）${fiscalMonths.length}ヶ月分`} color={COLOR.team} stats={fiscalStats}/>
+            :<div style={{background:"#f5f5f3",borderRadius:"12px",padding:"20px",textAlign:"center",marginBottom:12}}><p style={{fontSize:13,color:"#aaa",margin:0}}>データがまだありません</p></div>
+        )}
+        <ReviewSection review={currentReview} onSave={saveReview} saving={saving}/>
       </div>
     </div>
   );
