@@ -77,8 +77,7 @@ function sumGames(games){
 
 function computeMonthStats(records,year,month){
   let soloDay=0,soloMins=0,teamDay=0,teamMins=0,trainDay=0,gameCount=0;
-  const gamesAll=[];
-  const teamBreakdown={};
+  const gamesAll=[];const teamBreakdown={};
   Object.entries(records).forEach(([ds,rec])=>{
     const[y,m]=ds.split("-").map(Number);
     if(y!==year||m!==month+1) return;
@@ -88,8 +87,7 @@ function computeMonthStats(records,year,month){
     if(teams.length>0){
       teamDay++;
       teams.forEach(t=>{
-        const mins=calcMins(t.startTime,t.endTime);
-        teamMins+=mins;
+        const mins=calcMins(t.startTime,t.endTime);teamMins+=mins;
         const name=t.teamName||"未設定";
         if(!teamBreakdown[name]) teamBreakdown[name]={count:0,mins:0};
         teamBreakdown[name].count++;teamBreakdown[name].mins+=mins;
@@ -149,20 +147,15 @@ function avgStats(stats,months){
 }
 
 function getCompletedMonths(records,baseYear,baseMonth,count){
-  const result=[];
-  let y=baseYear,m=baseMonth;
-  for(let i=0;i<count;i++){
-    m--;if(m<0){m=11;y--;}
-    result.push({year:y,month:m});
-  }
+  const result=[];let y=baseYear,m=baseMonth;
+  for(let i=0;i<count;i++){m--;if(m<0){m=11;y--;}result.push({year:y,month:m});}
   return result;
 }
 
 function getFiscalMonths(records,fiscalYear,today){
   const months=[];
   for(let m=3;m<=14;m++){
-    const realMonth=m%12;
-    const realYear=m<12?fiscalYear:fiscalYear+1;
+    const realMonth=m%12,realYear=m<12?fiscalYear:fiscalYear+1;
     const isCompleted=realYear<today.getFullYear()||(realYear===today.getFullYear()&&realMonth<today.getMonth());
     if(isCompleted) months.push({year:realYear,month:realMonth});
   }
@@ -190,8 +183,9 @@ function StatBlock({title,color,stats,isAvg}){
   return(
     <div style={{background:"#f5f5f3",borderRadius:"12px",padding:"14px",marginBottom:12}}>
       <p style={{fontSize:13,fontWeight:500,color,margin:"0 0 12px"}}>{title}</p>
+
       <p style={{fontSize:11,color:"#888",margin:"0 0 6px",fontWeight:500}}>自主練</p>
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:10}}>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:12}}>
         {[["練習日数",soloDay+"日"+suffix],["合計時間",minsToLabel(Math.round(soloMins))]].map(([l,v])=>(
           <div key={l} style={{background:"#fff",borderRadius:"8px",padding:"8px",textAlign:"center"}}>
             <p style={{fontSize:11,color:"#888",margin:"0 0 2px"}}>{l}</p>
@@ -199,13 +193,17 @@ function StatBlock({title,color,stats,isAvg}){
           </div>
         ))}
       </div>
+
+      <div style={{borderTop:"0.5px solid #ddd",marginBottom:12}}/>
       <p style={{fontSize:11,color:"#888",margin:"0 0 6px",fontWeight:500}}>トレーニング</p>
-      <div style={{background:"#fff",borderRadius:"8px",padding:"8px",textAlign:"center",marginBottom:10}}>
+      <div style={{background:"#fff",borderRadius:"8px",padding:"8px",textAlign:"center",marginBottom:12}}>
         <p style={{fontSize:11,color:"#888",margin:"0 0 2px"}}>練習日数</p>
         <p style={{fontSize:15,fontWeight:500,color:"#333",margin:0}}>{trainDay}日{suffix}</p>
       </div>
+
+      <div style={{borderTop:"0.5px solid #ddd",marginBottom:12}}/>
       <p style={{fontSize:11,color:"#888",margin:"0 0 6px",fontWeight:500}}>チーム練習</p>
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:teamEntries.length>0?8:10}}>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:teamEntries.length>0?8:12}}>
         {[["練習日数",teamDay+"日"+suffix],["合計時間",minsToLabel(Math.round(teamMins))]].map(([l,v])=>(
           <div key={l} style={{background:"#fff",borderRadius:"8px",padding:"8px",textAlign:"center"}}>
             <p style={{fontSize:11,color:"#888",margin:"0 0 2px"}}>{l}</p>
@@ -214,7 +212,7 @@ function StatBlock({title,color,stats,isAvg}){
         ))}
       </div>
       {teamEntries.length>0&&(
-        <div style={{marginBottom:10}}>
+        <div style={{marginBottom:12}}>
           {teamEntries.map(([name,{count,mins}])=>(
             <div key={name} style={{display:"flex",alignItems:"center",gap:8,background:"#fff",borderRadius:"8px",padding:"7px 10px",marginBottom:4}}>
               <span style={{fontSize:12,fontWeight:500,color:COLOR.team,minWidth:70}}>{name}</span>
@@ -224,6 +222,8 @@ function StatBlock({title,color,stats,isAvg}){
           ))}
         </div>
       )}
+
+      <div style={{borderTop:"0.5px solid #ddd",marginBottom:12}}/>
       {gameStats&&gameStats.count>0?(
         <div>
           <p style={{fontSize:11,color:"#888",margin:"0 0 6px",fontWeight:500}}>試合</p>
@@ -258,7 +258,7 @@ function StatBlock({title,color,stats,isAvg}){
           )}
           <div style={{background:"#fff",borderRadius:"8px",padding:"10px",marginBottom:6}}>
             <div style={{display:"grid",gridTemplateColumns:"36px 1fr 1fr 1fr",gap:"5px 6px",alignItems:"center"}}>
-              <span/><span style={{fontSize:11,color:"#888",textAlign:"center"}}>試投/決定</span><span style={{fontSize:11,color:"#888",textAlign:"center"}}>成功率</span><span style={{fontSize:11,color:"#888",textAlign:"center"}}>{isAvg?"":"1試合平均"}</span>
+              <span/><span style={{fontSize:11,color:"#888",textAlign:"center"}}>決定/試投</span><span style={{fontSize:11,color:"#888",textAlign:"center"}}>成功率</span><span style={{fontSize:11,color:"#888",textAlign:"center"}}>{isAvg?"":"1試合平均"}</span>
               {[
                 ["2P",Math.round(gameStats.shot2m)+"/"+Math.round(gameStats.shot2a),gameStats.p2Pct,gameStats.count>0?round1(gameStats.shot2m/gameStats.count)+"/"+round1(gameStats.shot2a/gameStats.count):"-"],
                 ["3P",Math.round(gameStats.shot3m)+"/"+Math.round(gameStats.shot3a),gameStats.p3Pct,gameStats.count>0?round1(gameStats.shot3m/gameStats.count)+"/"+round1(gameStats.shot3a/gameStats.count):"-"],
@@ -291,14 +291,31 @@ function StatBlock({title,color,stats,isAvg}){
   );
 }
 
-function ReviewSection({review,onSave,saving}){
-  const[form,setForm]=useState(review||newMonthReview());
-  const[editing,setEditing]=useState(!review);
+function ReviewSection({review,onSave,saving,goalKey}){
+  const[form,setForm]=useState(()=>review||newMonthReview());
+  const[editing,setEditing]=useState(false);
   const[open,setOpen]=useState(false);
+
+  useEffect(()=>{
+    setForm(review||newMonthReview());
+    setEditing(false);setOpen(false);
+  },[goalKey,review]);
+
   const sf=(section,key,field)=>v=>setForm(f=>({...f,[section]:{...f[section],[key]:{...f[section][key],[field]:v}}}));
   const goalItems=[{k:"basketball",l:"🏀 バスケ"},{k:"study",l:"📚 勉強"},{k:"life",l:"🌱 生活"},{k:"training",l:"💪 トレーニング"}];
   const practiceItems=[{k:"solo",l:"🏀 自主練"},{k:"team",l:"👥 チーム練習"},{k:"game",l:"🏆 試合"}];
   const reviewFields=[{f:"good",l:"できたこと"},{f:"improve",l:"改善すること"},{f:"next",l:"来月に向けて"}];
+
+  if(!review&&!editing){
+    return(
+      <div style={{...cardS,marginTop:4}}>
+        <button onClick={()=>setEditing(true)} style={btnS({width:"100%",borderColor:"#ccc",color:"#666"})}>
+          + 月間振り返りを入力する
+        </button>
+      </div>
+    );
+  }
+
   if(!editing){
     return(
       <div style={{...cardS,marginTop:4}}>
@@ -331,6 +348,7 @@ function ReviewSection({review,onSave,saving}){
       </div>
     );
   }
+
   return(
     <div style={{...cardS,marginTop:4}}>
       <p style={{fontSize:14,fontWeight:500,color:"#333",margin:"0 0 14px"}}>月間振り返り</p>
@@ -560,7 +578,6 @@ export default function App(){
   const recent3Months=getCompletedMonths(records,calYear,calMonth,3);
   const recent3Stats=computeMultiMonthStats(records,recent3Months);
   const recent3Avg=recent3Months.length>0?avgStats(recent3Stats,recent3Months.length):null;
-
   const fiscalYear=getFiscalYear(calYear,calMonth);
   const fiscalMonths=getFiscalMonths(records,fiscalYear,today);
   const fiscalStats=fiscalMonths.length>0?computeMultiMonthStats(records,fiscalMonths):null;
@@ -1033,7 +1050,7 @@ export default function App(){
             ?<StatBlock title={`${fiscalYear}年度（4月〜3月）${fiscalMonths.length}ヶ月分`} color={COLOR.team} stats={fiscalStats}/>
             :<div style={{background:"#f5f5f3",borderRadius:"12px",padding:"20px",textAlign:"center",marginBottom:12}}><p style={{fontSize:13,color:"#aaa",margin:0}}>データがまだありません</p></div>
         )}
-        <ReviewSection review={currentReview} onSave={saveReview} saving={saving}/>
+        <ReviewSection review={currentReview} onSave={saveReview} saving={saving} goalKey={goalKey}/>
       </div>
     </div>
   );
