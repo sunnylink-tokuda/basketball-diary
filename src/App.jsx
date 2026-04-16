@@ -829,24 +829,29 @@ export default function App(){
       </div>
     );
 
+    function moveDay(delta){
+      const[y,m,d]=sel.split("-").map(Number);
+      const current=new Date(y,m-1,d);
+      current.setDate(current.getDate()+delta);
+      const newDs=fmtDate(current.getFullYear(),current.getMonth(),current.getDate());
+      setSel(newDs);
+      setParentComment(records[newDs]?.parentComment||"");
+      setEditingParentComment(!records[newDs]?.parentComment);
+      setEditMode(null);
+      setCalYear(current.getFullYear());
+      setCalMonth(current.getMonth());
+    }
+
     return(
       <div style={{padding:"1rem",maxWidth:520,margin:"0 auto"}}>
-        <button onClick={()=>setView("calendar")} style={btnS()}>← カレンダー</button>
-        <h2 style={{fontSize:18,fontWeight:500,margin:"1rem 0 1.25rem",color:"#333"}}>{label}</h2>
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:8}}>
-          {[{type:"solo",label:"自主練",color:COLOR.solo},{type:"team",label:"チーム練習",color:COLOR.team}].map(({type,label,color})=>(
-            <button key={type} onClick={()=>startEdit(type)} style={btnS({borderColor:color,color:color,fontSize:12,padding:"8px 4px",textAlign:"center"})}>
-              {type==="solo"?solos.length>0?"自主練を編集":"+ 自主練":teams.length>0?"チーム練習を編集":"+ チーム練習"}
-            </button>
-          ))}
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16}}>
+          <button onClick={()=>setView("calendar")} style={btnS()}>← カレンダー</button>
+          <div style={{display:"flex",alignItems:"center",gap:6}}>
+            <button onClick={()=>moveDay(-1)} style={btnS({padding:"6px 12px"})}>‹ 前日</button>
+            <button onClick={()=>moveDay(1)} style={btnS({padding:"6px 12px"})}>翌日 ›</button>
+          </div>
         </div>
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:20}}>
-          {[{type:"training",label:"トレーニング",color:COLOR.train},{type:"games",label:"試合",color:COLOR.game}].map(({type,label,color})=>(
-            <button key={type} onClick={()=>startEdit(type)} style={btnS({borderColor:color,color:color,fontSize:12,padding:"8px 4px",textAlign:"center"})}>
-              {type==="games"?games.length>0?"試合を編集":"+ 試合":rec[type]?`${label}を編集`:`+ ${label}`}
-            </button>
-          ))}
-        </div>
+        <h2 style={{fontSize:18,fontWeight:500,margin:"0 0 1.25rem",color:"#333"}}>{label}</h2>
 
         {solos.length>0&&(
           <div style={cardS}>
