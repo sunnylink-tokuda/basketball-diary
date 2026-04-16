@@ -77,7 +77,8 @@ function sumGames(games){
 
 function computeMonthStats(records,year,month){
   let soloDay=0,soloMins=0,teamDay=0,teamMins=0,trainDay=0,gameCount=0;
-  const gamesAll=[];const teamBreakdown={};
+  const gamesAll=[];
+  const teamBreakdown={};
   Object.entries(records).forEach(([ds,rec])=>{
     const[y,m]=ds.split("-").map(Number);
     if(y!==year||m!==month+1) return;
@@ -87,7 +88,8 @@ function computeMonthStats(records,year,month){
     if(teams.length>0){
       teamDay++;
       teams.forEach(t=>{
-        const mins=calcMins(t.startTime,t.endTime);teamMins+=mins;
+        const mins=calcMins(t.startTime,t.endTime);
+        teamMins+=mins;
         const name=t.teamName||"未設定";
         if(!teamBreakdown[name]) teamBreakdown[name]={count:0,mins:0};
         teamBreakdown[name].count++;teamBreakdown[name].mins+=mins;
@@ -147,15 +149,20 @@ function avgStats(stats,months){
 }
 
 function getCompletedMonths(records,baseYear,baseMonth,count){
-  const result=[];let y=baseYear,m=baseMonth;
-  for(let i=0;i<count;i++){m--;if(m<0){m=11;y--;}result.push({year:y,month:m});}
+  const result=[];
+  let y=baseYear,m=baseMonth;
+  for(let i=0;i<count;i++){
+    m--;if(m<0){m=11;y--;}
+    result.push({year:y,month:m});
+  }
   return result;
 }
 
 function getFiscalMonths(records,fiscalYear,today){
   const months=[];
   for(let m=3;m<=14;m++){
-    const realMonth=m%12,realYear=m<12?fiscalYear:fiscalYear+1;
+    const realMonth=m%12;
+    const realYear=m<12?fiscalYear:fiscalYear+1;
     const isCompleted=realYear<today.getFullYear()||(realYear===today.getFullYear()&&realMonth<today.getMonth());
     if(isCompleted) months.push({year:realYear,month:realMonth});
   }
@@ -183,7 +190,6 @@ function StatBlock({title,color,stats,isAvg}){
   return(
     <div style={{background:"#f5f5f3",borderRadius:"12px",padding:"14px",marginBottom:12}}>
       <p style={{fontSize:13,fontWeight:500,color,margin:"0 0 12px"}}>{title}</p>
-
       <p style={{fontSize:11,color:"#888",margin:"0 0 6px",fontWeight:500}}>自主練</p>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:12}}>
         {[["練習日数",soloDay+"日"+suffix],["合計時間",minsToLabel(Math.round(soloMins))]].map(([l,v])=>(
@@ -193,14 +199,12 @@ function StatBlock({title,color,stats,isAvg}){
           </div>
         ))}
       </div>
-
       <div style={{borderTop:"0.5px solid #ddd",marginBottom:12}}/>
       <p style={{fontSize:11,color:"#888",margin:"0 0 6px",fontWeight:500}}>トレーニング</p>
       <div style={{background:"#fff",borderRadius:"8px",padding:"8px",textAlign:"center",marginBottom:12}}>
         <p style={{fontSize:11,color:"#888",margin:"0 0 2px"}}>練習日数</p>
         <p style={{fontSize:15,fontWeight:500,color:"#333",margin:0}}>{trainDay}日{suffix}</p>
       </div>
-
       <div style={{borderTop:"0.5px solid #ddd",marginBottom:12}}/>
       <p style={{fontSize:11,color:"#888",margin:"0 0 6px",fontWeight:500}}>チーム練習</p>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:teamEntries.length>0?8:12}}>
@@ -222,7 +226,6 @@ function StatBlock({title,color,stats,isAvg}){
           ))}
         </div>
       )}
-
       <div style={{borderTop:"0.5px solid #ddd",marginBottom:12}}/>
       {gameStats&&gameStats.count>0?(
         <div>
@@ -295,12 +298,11 @@ function ReviewSection({review,onSave,saving,goalKey}){
   const[form,setForm]=useState(()=>review||newMonthReview());
   const[editing,setEditing]=useState(false);
   const[open,setOpen]=useState(false);
-
   useEffect(()=>{
     setForm(review||newMonthReview());
-    setEditing(false);setOpen(false);
+    setEditing(false);
+    setOpen(false);
   },[goalKey,review]);
-
   const sf=(section,key,field)=>v=>setForm(f=>({...f,[section]:{...f[section],[key]:{...f[section][key],[field]:v}}}));
   const goalItems=[{k:"basketball",l:"🏀 バスケ"},{k:"study",l:"📚 勉強"},{k:"life",l:"🌱 生活"},{k:"training",l:"💪 トレーニング"}];
   const practiceItems=[{k:"solo",l:"🏀 自主練"},{k:"team",l:"👥 チーム練習"},{k:"game",l:"🏆 試合"}];
@@ -504,14 +506,14 @@ function GameForm({game,onChange,onDelete,index,total}){
   );
 }
 
-function MenuListPage({title,color,menus,onSave}){
+function MenuListPage({color,menus,onSave}){
   const[items,setItems]=useState(menus);
   const[input,setInput]=useState("");
   const[dirty,setDirty]=useState(false);
   function add(){const v=input.trim();if(!v)return;setItems(i=>[...i,v]);setInput("");setDirty(true);}
   function remove(i){setItems(p=>p.filter((_,j)=>j!==i));setDirty(true);}
   return(
-    <div style={{padding:"1rem",maxWidth:520,margin:"0 auto"}}>
+    <div>
       <div style={{display:"flex",gap:6,marginBottom:12}}>
         <input placeholder="メニューを入力" value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>e.key==="Enter"&&add()} style={{flex:1,padding:"7px 10px",borderRadius:"8px",border:"0.5px solid #ccc",background:"#fff",color:"#333",fontSize:14}}/>
         <button onClick={add} style={btnS({borderColor:color,color:color,padding:"7px 14px"})}>追加</button>
@@ -693,7 +695,7 @@ export default function App(){
     <div style={{padding:"1rem",maxWidth:520,margin:"0 auto"}}>
       {menuOpen&&<HamburgerMenu/>}
       <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:20}}><HamBtn/><span style={{fontSize:16,fontWeight:500,color:"#333"}}>自主練メニュー</span></div>
-      <MenuListPage title="" color={COLOR.solo} menus={appData.soloMenus||[]} onSave={async items=>await persistMeta({soloMenus:items})}/>
+      <MenuListPage key="solo" color={COLOR.solo} menus={appData.soloMenus||[]} onSave={async items=>await persistMeta({soloMenus:items})}/>
     </div>
   );
 
@@ -701,7 +703,7 @@ export default function App(){
     <div style={{padding:"1rem",maxWidth:520,margin:"0 auto"}}>
       {menuOpen&&<HamburgerMenu/>}
       <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:20}}><HamBtn/><span style={{fontSize:16,fontWeight:500,color:"#333"}}>トレーニングメニュー</span></div>
-      <MenuListPage title="" color={COLOR.train} menus={appData.trainMenus||[]} onSave={async items=>await persistMeta({trainMenus:items})}/>
+      <MenuListPage key="train" color={COLOR.train} menus={appData.trainMenus||[]} onSave={async items=>await persistMeta({trainMenus:items})}/>
     </div>
   );
 
