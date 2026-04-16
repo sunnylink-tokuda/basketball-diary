@@ -509,9 +509,19 @@ function GameForm({game,onChange,onDelete,index,total}){
 function MenuListPage({color,menus,onSave}){
   const[items,setItems]=useState(menus);
   const[input,setInput]=useState("");
+  const[editIndex,setEditIndex]=useState(null);
+  const[editValue,setEditValue]=useState("");
   const[dirty,setDirty]=useState(false);
   function add(){const v=input.trim();if(!v)return;setItems(i=>[...i,v]);setInput("");setDirty(true);}
   function remove(i){setItems(p=>p.filter((_,j)=>j!==i));setDirty(true);}
+  function startEdit(i){setEditIndex(i);setEditValue(items[i]);}
+  function saveEdit(){
+    if(editIndex===null) return;
+    const v=editValue.trim();
+    if(!v){setEditIndex(null);return;}
+    setItems(p=>p.map((x,j)=>j===editIndex?v:x));
+    setEditIndex(null);setEditValue("");setDirty(true);
+  }
   return(
     <div>
       <div style={{display:"flex",gap:6,marginBottom:12}}>
@@ -521,9 +531,20 @@ function MenuListPage({color,menus,onSave}){
       {items.length>0?(
         <div style={{display:"flex",flexDirection:"column",gap:4,marginBottom:16}}>
           {items.map((m,i)=>(
-            <div key={i} style={{display:"flex",alignItems:"center",gap:8,background:"#f5f5f3",borderRadius:"8px",padding:"9px 12px"}}>
-              <span style={{fontSize:14,color:"#333",flex:1}}>{m}</span>
-              <button onClick={()=>remove(i)} style={{background:"none",border:"none",cursor:"pointer",color:"#aaa",fontSize:18,lineHeight:1,padding:"0 2px"}}>×</button>
+            <div key={i} style={{background:"#f5f5f3",borderRadius:"8px",padding:"7px 12px"}}>
+              {editIndex===i?(
+                <div style={{display:"flex",gap:6,alignItems:"center"}}>
+                  <input value={editValue} onChange={e=>setEditValue(e.target.value)} onKeyDown={e=>e.key==="Enter"&&saveEdit()} style={{flex:1,padding:"5px 8px",borderRadius:"6px",border:`1px solid ${color}`,fontSize:14,color:"#333",background:"#fff"}} autoFocus/>
+                  <button onClick={saveEdit} style={btnS({fontSize:12,padding:"4px 10px",borderColor:color,color:color})}>保存</button>
+                  <button onClick={()=>setEditIndex(null)} style={btnS({fontSize:12,padding:"4px 10px"})}>×</button>
+                </div>
+              ):(
+                <div style={{display:"flex",alignItems:"center",gap:8}}>
+                  <span style={{fontSize:14,color:"#333",flex:1}}>{m}</span>
+                  <button onClick={()=>startEdit(i)} style={{background:"none",border:"none",cursor:"pointer",color:"#888",fontSize:13,padding:"0 4px"}}>編集</button>
+                  <button onClick={()=>remove(i)} style={{background:"none",border:"none",cursor:"pointer",color:"#aaa",fontSize:18,lineHeight:1,padding:"0 2px"}}>×</button>
+                </div>
+              )}
             </div>
           ))}
         </div>
