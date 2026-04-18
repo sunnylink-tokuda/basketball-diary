@@ -77,8 +77,7 @@ function sumGames(games){
 
 function computeMonthStats(records,year,month){
   let soloDay=0,soloMins=0,teamDay=0,teamMins=0,trainDay=0,gameCount=0;
-  const gamesAll=[];
-  const teamBreakdown={};
+  const gamesAll=[];const teamBreakdown={};
   Object.entries(records).forEach(([ds,rec])=>{
     const[y,m]=ds.split("-").map(Number);
     if(y!==year||m!==month+1) return;
@@ -88,8 +87,7 @@ function computeMonthStats(records,year,month){
     if(teams.length>0){
       teamDay++;
       teams.forEach(t=>{
-        const mins=calcMins(t.startTime,t.endTime);
-        teamMins+=mins;
+        const mins=calcMins(t.startTime,t.endTime);teamMins+=mins;
         const name=t.teamName||"未設定";
         if(!teamBreakdown[name]) teamBreakdown[name]={count:0,mins:0};
         teamBreakdown[name].count++;teamBreakdown[name].mins+=mins;
@@ -149,20 +147,15 @@ function avgStats(stats,months){
 }
 
 function getCompletedMonths(records,baseYear,baseMonth,count){
-  const result=[];
-  let y=baseYear,m=baseMonth;
-  for(let i=0;i<count;i++){
-    m--;if(m<0){m=11;y--;}
-    result.push({year:y,month:m});
-  }
+  const result=[];let y=baseYear,m=baseMonth;
+  for(let i=0;i<count;i++){m--;if(m<0){m=11;y--;}result.push({year:y,month:m});}
   return result;
 }
 
 function getFiscalMonths(records,fiscalYear,today){
   const months=[];
   for(let m=3;m<=14;m++){
-    const realMonth=m%12;
-    const realYear=m<12?fiscalYear:fiscalYear+1;
+    const realMonth=m%12;const realYear=m<12?fiscalYear:fiscalYear+1;
     const isCompleted=realYear<today.getFullYear()||(realYear===today.getFullYear()&&realMonth<today.getMonth());
     if(isCompleted) months.push({year:realYear,month:realMonth});
   }
@@ -298,59 +291,46 @@ function ReviewSection({review,onSave,saving,goalKey}){
   const[form,setForm]=useState(()=>review||newMonthReview());
   const[editing,setEditing]=useState(false);
   const[open,setOpen]=useState(false);
-  useEffect(()=>{
-    setForm(review||newMonthReview());
-    setEditing(false);
-    setOpen(false);
-  },[goalKey,review]);
+  useEffect(()=>{setForm(review||newMonthReview());setEditing(false);setOpen(false);},[goalKey,review]);
   const sf=(section,key,field)=>v=>setForm(f=>({...f,[section]:{...f[section],[key]:{...f[section][key],[field]:v}}}));
   const goalItems=[{k:"basketball",l:"🏀 バスケ"},{k:"study",l:"📚 勉強"},{k:"life",l:"🌱 生活"},{k:"training",l:"💪 トレーニング"}];
   const practiceItems=[{k:"solo",l:"🏀 自主練"},{k:"team",l:"👥 チーム練習"},{k:"game",l:"🏆 試合"}];
   const reviewFields=[{f:"good",l:"できたこと"},{f:"improve",l:"改善すること"},{f:"next",l:"来月に向けて"}];
-
-  if(!review&&!editing){
-    return(
-      <div style={{...cardS,marginTop:4}}>
-        <button onClick={()=>setEditing(true)} style={btnS({width:"100%",borderColor:"#ccc",color:"#666"})}>
-          + 月間振り返りを入力する
-        </button>
-      </div>
-    );
-  }
-
-  if(!editing){
-    return(
-      <div style={{...cardS,marginTop:4}}>
-        <button onClick={()=>setOpen(o=>!o)} style={{width:"100%",background:"none",border:"none",cursor:"pointer",padding:0,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-          <span style={{fontSize:14,fontWeight:500,color:"#333"}}>月間振り返り</span>
-          <div style={{display:"flex",alignItems:"center",gap:8}}>
-            <button onClick={e=>{e.stopPropagation();setEditing(true);setOpen(true);}} style={btnS({fontSize:12,padding:"4px 10px"})}>編集</button>
-            <span style={{fontSize:16,color:"#888",lineHeight:1}}>{open?"▲":"▼"}</span>
-          </div>
-        </button>
-        {open&&(
-          <div style={{marginTop:12}}>
-            {[{label:"目標振り返り",items:goalItems,section:"goal"},{label:"練習振り返り",items:practiceItems,section:"practice"}].map(({label,items,section})=>(
-              <div key={section} style={{marginBottom:12}}>
-                <p style={{fontSize:12,fontWeight:500,color:"#888",margin:"0 0 8px"}}>{label}</p>
-                {items.map(({k,l})=>{
-                  const d=form[section]?.[k]||{};
-                  if(!d.good&&!d.improve&&!d.next) return null;
-                  return(
-                    <div key={k} style={{marginBottom:8}}>
-                      <p style={{fontSize:12,fontWeight:500,color:"#555",margin:"0 0 4px"}}>{l}</p>
-                      {reviewFields.map(({f,l:fl})=>d[f]?<div key={f} style={{marginBottom:3}}><span style={{fontSize:11,color:"#888"}}>{fl}　</span><span style={{fontSize:13,color:"#333",whiteSpace:"pre-wrap"}}>{d[f]}</span></div>:null)}
-                    </div>
-                  );
-                })}
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-    );
-  }
-
+  if(!review&&!editing) return(
+    <div style={{...cardS,marginTop:4}}>
+      <button onClick={()=>setEditing(true)} style={btnS({width:"100%",borderColor:"#ccc",color:"#666"})}>+ 月間振り返りを入力する</button>
+    </div>
+  );
+  if(!editing) return(
+    <div style={{...cardS,marginTop:4}}>
+      <button onClick={()=>setOpen(o=>!o)} style={{width:"100%",background:"none",border:"none",cursor:"pointer",padding:0,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+        <span style={{fontSize:14,fontWeight:500,color:"#333"}}>月間振り返り</span>
+        <div style={{display:"flex",alignItems:"center",gap:8}}>
+          <button onClick={e=>{e.stopPropagation();setEditing(true);setOpen(true);}} style={btnS({fontSize:12,padding:"4px 10px"})}>編集</button>
+          <span style={{fontSize:16,color:"#888",lineHeight:1}}>{open?"▲":"▼"}</span>
+        </div>
+      </button>
+      {open&&(
+        <div style={{marginTop:12}}>
+          {[{label:"目標振り返り",items:goalItems,section:"goal"},{label:"練習振り返り",items:practiceItems,section:"practice"}].map(({label,items,section})=>(
+            <div key={section} style={{marginBottom:12}}>
+              <p style={{fontSize:12,fontWeight:500,color:"#888",margin:"0 0 8px"}}>{label}</p>
+              {items.map(({k,l})=>{
+                const d=form[section]?.[k]||{};
+                if(!d.good&&!d.improve&&!d.next) return null;
+                return(
+                  <div key={k} style={{marginBottom:8}}>
+                    <p style={{fontSize:12,fontWeight:500,color:"#555",margin:"0 0 4px"}}>{l}</p>
+                    {reviewFields.map(({f,l:fl})=>d[f]?<div key={f} style={{marginBottom:3}}><span style={{fontSize:11,color:"#888"}}>{fl}　</span><span style={{fontSize:13,color:"#333",whiteSpace:"pre-wrap"}}>{d[f]}</span></div>:null)}
+                  </div>
+                );
+              })}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
   return(
     <div style={{...cardS,marginTop:4}}>
       <p style={{fontSize:14,fontWeight:500,color:"#333",margin:"0 0 14px"}}>月間振り返り</p>
@@ -624,6 +604,19 @@ export default function App(){
     setEditingParentComment(!records[ds]?.parentComment);setEditMode(null);setView("day");
   }
 
+  function moveDay(delta){
+    const[y,m,d]=sel.split("-").map(Number);
+    const current=new Date(y,m-1,d);
+    current.setDate(current.getDate()+delta);
+    const newDs=fmtDate(current.getFullYear(),current.getMonth(),current.getDate());
+    setSel(newDs);
+    setParentComment(records[newDs]?.parentComment||"");
+    setEditingParentComment(!records[newDs]?.parentComment);
+    setEditMode(null);
+    setCalYear(current.getFullYear());
+    setCalMonth(current.getMonth());
+  }
+
   function startEdit(type){
     const r=getRec(sel);
     if(type==="solo") setSolosList(r.solos?.length>0?r.solos.map(s=>({...newSolo(),...s})):[newSolo()]);
@@ -829,29 +822,31 @@ export default function App(){
       </div>
     );
 
-    function moveDay(delta){
-      const[y,m,d]=sel.split("-").map(Number);
-      const current=new Date(y,m-1,d);
-      current.setDate(current.getDate()+delta);
-      const newDs=fmtDate(current.getFullYear(),current.getMonth(),current.getDate());
-      setSel(newDs);
-      setParentComment(records[newDs]?.parentComment||"");
-      setEditingParentComment(!records[newDs]?.parentComment);
-      setEditMode(null);
-      setCalYear(current.getFullYear());
-      setCalMonth(current.getMonth());
-    }
-
     return(
       <div style={{padding:"1rem",maxWidth:520,margin:"0 auto"}}>
         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16}}>
           <button onClick={()=>setView("calendar")} style={btnS()}>← カレンダー</button>
-          <div style={{display:"flex",alignItems:"center",gap:6}}>
+          <div style={{display:"flex",gap:6}}>
             <button onClick={()=>moveDay(-1)} style={btnS({padding:"6px 12px"})}>‹ 前日</button>
             <button onClick={()=>moveDay(1)} style={btnS({padding:"6px 12px"})}>翌日 ›</button>
           </div>
         </div>
         <h2 style={{fontSize:18,fontWeight:500,margin:"0 0 1.25rem",color:"#333"}}>{label}</h2>
+
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:8}}>
+          {[{type:"solo",label:"自主練",color:COLOR.solo},{type:"team",label:"チーム練習",color:COLOR.team}].map(({type,label,color})=>(
+            <button key={type} onClick={()=>startEdit(type)} style={btnS({borderColor:color,color:color,fontSize:12,padding:"8px 4px",textAlign:"center"})}>
+              {type==="solo"?solos.length>0?"自主練を編集":"+ 自主練":teams.length>0?"チーム練習を編集":"+ チーム練習"}
+            </button>
+          ))}
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:20}}>
+          {[{type:"training",label:"トレーニング",color:COLOR.train},{type:"games",label:"試合",color:COLOR.game}].map(({type,label,color})=>(
+            <button key={type} onClick={()=>startEdit(type)} style={btnS({borderColor:color,color:color,fontSize:12,padding:"8px 4px",textAlign:"center"})}>
+              {type==="games"?games.length>0?"試合を編集":"+ 試合":rec[type]?`${label}を編集`:`+ ${label}`}
+            </button>
+          ))}
+        </div>
 
         {solos.length>0&&(
           <div style={cardS}>
