@@ -1,8 +1,10 @@
 import { useState, useEffect } from "react";
 import { supabase } from './supabase.js';
 
-const COLOR = { solo: "#1D9E75", team: "#378ADD", game: "#D85A30", train: "#7F77DD", both: "#888" };
+const COLOR = { solo: "#1D9E75", team: "#378ADD", game: "#D85A30", train: "#7F77DD", both: "#888", chore: "#E8A020", allowance: "#C0392B" };
 const TEAM_OPTIONS = ["キングス","EMBC","KINGDOME","T's","その他"];
+const EXPENSE_CATEGORIES = ["食べ物・飲み物","ゲーム・アプリ","おもちゃ・グッズ","本・マンガ","その他"];
+const INCOME_CATEGORIES = ["お小遣い","お年玉","誕生日プレゼント","お手伝い","その他"];
 
 function newGame(){return {opponent:"",myScore:"",oppScore:"",playTime:"",shot2a:"",shot2m:"",shot3a:"",shot3m:"",fta:"",ftm:"",ast:"",reb:"",stl:"",tov:"",foul:"",good:"",reflect:""};};
 function newDaySummary(){return {memo:"",good:"",reflect:"",next:""};};
@@ -13,12 +15,14 @@ function newMonthReview(){return {
   goal:{basketball:{good:"",improve:"",next:""},study:{good:"",improve:"",next:""},life:{good:"",improve:"",next:""},training:{good:"",improve:"",next:""}},
   practice:{solo:{good:"",improve:"",next:""},team:{good:"",improve:"",next:""},game:{good:"",improve:"",next:""}}
 };};
+function newChore(){return {choreId:"",name:"",amount:"",memo:""};};
+function newAllowanceEntry(){return {type:"income",category:"お小遣い",amount:"",memo:"",date:""};};
 
 async function loadFromSupabase(){
   try{
     const{data,error}=await supabase.from('records').select('*');
-    if(error){console.error(error);return{records:{},monthGoals:{},monthReviews:{},soloMenus:[],trainMenus:[]};}
-    const result={records:{},monthGoals:{},monthReviews:{},soloMenus:[],trainMenus:[]};
+    if(error){console.error(error);return{records:{},monthGoals:{},monthReviews:{},soloMenus:[],trainMenus:[],choreList:[],allowanceEntries:[]};}
+    const result={records:{},monthGoals:{},monthReviews:{},soloMenus:[],trainMenus:[],choreList:[],allowanceEntries:[]};
     data.forEach(row=>{
       if(row.date==='__meta__') Object.assign(result,row.data);
       else{
@@ -29,7 +33,7 @@ async function loadFromSupabase(){
       }
     });
     return result;
-  }catch{return{records:{},monthGoals:{},monthReviews:{},soloMenus:[],trainMenus:[]};}
+  }catch{return{records:{},monthGoals:{},monthReviews:{},soloMenus:[],trainMenus:[],choreList:[],allowanceEntries:[]};}
 }
 
 async function saveDayToSupabase(date,dayData){
@@ -55,6 +59,31 @@ function calcMins(start,end){if(!start||!end)return 0;const[sh,sm]=start.split("
 function minsToLabel(m){if(!m)return "0分";const h=Math.floor(m/60),mn=m%60;return h>0?`${h}時間${mn>0?mn+"分":""}`:`${mn}分`;}
 function round1(v){return Math.round(v*10)/10;}
 function getFiscalYear(year,month){return month>=3?year:year-1;}
+function fmtYen(v){return "¥"+Number(v||0).toLocaleString();}
+
+// お手伝い金額集計
+function computeChoreStats(records, choreList){
+  const byDate={};
+  const byMonth={};
+  const byYear={};
+  Object.entries(records).forEach(([ds,rec])=>{
+    if(!rec.chores||rec.chores.length===0) return;
+    const[y,m]=ds.split("-").map(Number);
+    const monthKey=`${y}-${String(m).padStart(2,"0")}`;
+    const yearKey=`${y}`;
+    let dayTotal=0;
+    rec.chores.forEach(c=>{
+      const amt=parseInt(c.amount)||0;
+      dayTotal+=amt;
+      if(!byMonth[monthKey]) byMonth[monthKey]=0;
+      byMonth[monthKey]+=amt;
+      if(!byYear[yearKey]) byYear[yearKey]=0;
+      byYear[yearKey]+=amt;
+    });
+    byDate[ds]=dayTotal;
+  });
+  return{byDate,byMonth,byYear};
+}
 
 function sumGames(games){
   const s={shot2a:0,shot2m:0,shot3a:0,shot3m:0,fta:0,ftm:0,ast:0,reb:0,stl:0,tov:0,foul:0,mins:0,count:0};
@@ -486,6 +515,238 @@ function GameForm({game,onChange,onDelete,index,total}){
   );
 }
 
+// お手伝いフォーム（1件）
+function ChoreForm({chore,index,total,onChange,onDelete,choreList}){
+  const selectedChore=choreList.find(c=>c.id===chore.choreId);
+  return(
+    <div style={{border:`1px solid ${COLOR.chore}44`,borderRadius:"12px",padding:"14px",marginBottom:14,background:"#fff"}}>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
+        <span style={{fontSize:14,fontWeight:500,color:COLOR.chore}}>第{index+1}回</span>
+        {total>1&&<button onClick={onDelete} style={{...btnS(),fontSize:12,padding:"4px 10px",color:"#888"}}>削除</button>}
+      </div>
+      <label style={lbl}>お手伝いの内容</label>
+      {choreList.length>0&&(
+        <div style={{display:"flex",flexWrap:"wrap",gap:5,marginBottom:10}}>
+          {choreList.map(c=>(
+            <button key={c.id} onClick={()=>onChange({...chore,choreId:c.id,name:c.name,amount:c.amount})}
+              style={{padding:"6px 12px",fontSize:13,borderRadius:20,border:"0.5px solid",
+                borderColor:chore.choreId===c.id?COLOR.chore:"#ccc",
+                background:chore.choreId===c.id?"#FFF3E0":"#fff",
+                color:chore.choreId===c.id?COLOR.chore:"#666",cursor:"pointer"}}>
+              {c.name}（{fmtYen(c.amount)}）
+            </button>
+          ))}
+        </div>
+      )}
+      <input placeholder="または直接入力..." value={chore.name||""} onChange={e=>onChange({...chore,name:e.target.value,choreId:""})} style={{...inpS,marginBottom:10}}/>
+      <label style={lbl}>金額（円）</label>
+      <input type="number" min="0" placeholder="50" value={chore.amount||""} onChange={e=>onChange({...chore,amount:e.target.value})} style={{...inpS,marginBottom:10}}/>
+      <label style={lbl}>メモ</label>
+      <input placeholder="任意メモ" value={chore.memo||""} onChange={e=>onChange({...chore,memo:e.target.value})} style={inpS}/>
+    </div>
+  );
+}
+
+// お手伝い一覧管理ページ
+function ChoreListPage({choreList,onSave}){
+  const[items,setItems]=useState(choreList.map(c=>({...c})));
+  const[nameInput,setNameInput]=useState("");
+  const[amountInput,setAmountInput]=useState("");
+  const[editIndex,setEditIndex]=useState(null);
+  const[editName,setEditName]=useState("");
+  const[editAmount,setEditAmount]=useState("");
+  const[dirty,setDirty]=useState(false);
+
+  function add(){
+    const name=nameInput.trim();const amount=amountInput.trim();
+    if(!name) return;
+    const id="c"+Date.now();
+    setItems(p=>[...p,{id,name,amount:amount||"0"}]);
+    setNameInput("");setAmountInput("");setDirty(true);
+  }
+  function remove(i){setItems(p=>p.filter((_,j)=>j!==i));setDirty(true);}
+  function startEdit(i){setEditIndex(i);setEditName(items[i].name);setEditAmount(items[i].amount);}
+  function saveEdit(){
+    if(editIndex===null) return;
+    const name=editName.trim();if(!name){setEditIndex(null);return;}
+    setItems(p=>p.map((x,j)=>j===editIndex?{...x,name,amount:editAmount}:x));
+    setEditIndex(null);setEditName("");setEditAmount("");setDirty(true);
+  }
+
+  return(
+    <div>
+      <div style={{background:"#FFF8ED",borderRadius:"12px",padding:"12px",marginBottom:14}}>
+        <p style={{fontSize:13,fontWeight:500,color:COLOR.chore,margin:"0 0 8px"}}>新しいお手伝いを追加</p>
+        <input placeholder="内容（例：お皿洗い）" value={nameInput} onChange={e=>setNameInput(e.target.value)} style={{...inpS,marginBottom:8}}/>
+        <div style={{display:"flex",gap:6}}>
+          <input type="number" min="0" placeholder="金額（円）" value={amountInput} onChange={e=>setAmountInput(e.target.value)} onKeyDown={e=>e.key==="Enter"&&add()} style={{flex:1,padding:"7px 10px",borderRadius:"8px",border:"0.5px solid #ccc",background:"#fff",color:"#333",fontSize:14}}/>
+          <button onClick={add} style={btnS({borderColor:COLOR.chore,color:COLOR.chore,padding:"7px 14px"})}>追加</button>
+        </div>
+      </div>
+      {items.length>0?(
+        <div style={{display:"flex",flexDirection:"column",gap:4,marginBottom:16}}>
+          {items.map((c,i)=>(
+            <div key={c.id} style={{background:"#f5f5f3",borderRadius:"8px",padding:"10px 12px"}}>
+              {editIndex===i?(
+                <div>
+                  <div style={{display:"flex",gap:6,marginBottom:6}}>
+                    <input value={editName} onChange={e=>setEditName(e.target.value)} style={{flex:1,padding:"5px 8px",borderRadius:"6px",border:`1px solid ${COLOR.chore}`,fontSize:14,color:"#333",background:"#fff"}} autoFocus/>
+                    <input type="number" value={editAmount} onChange={e=>setEditAmount(e.target.value)} style={{width:80,padding:"5px 8px",borderRadius:"6px",border:`1px solid ${COLOR.chore}`,fontSize:14,color:"#333",background:"#fff"}} placeholder="円"/>
+                  </div>
+                  <div style={{display:"flex",gap:6}}>
+                    <button onClick={saveEdit} style={btnS({fontSize:12,padding:"4px 10px",borderColor:COLOR.chore,color:COLOR.chore})}>保存</button>
+                    <button onClick={()=>setEditIndex(null)} style={btnS({fontSize:12,padding:"4px 10px"})}>×</button>
+                  </div>
+                </div>
+              ):(
+                <div style={{display:"flex",alignItems:"center",gap:8}}>
+                  <span style={{fontSize:14,color:"#333",flex:1}}>{c.name}</span>
+                  <span style={{fontSize:14,fontWeight:500,color:COLOR.chore}}>{fmtYen(c.amount)}</span>
+                  <button onClick={()=>startEdit(i)} style={{background:"none",border:"none",cursor:"pointer",color:"#888",fontSize:13,padding:"0 4px"}}>編集</button>
+                  <button onClick={()=>remove(i)} style={{background:"none",border:"none",cursor:"pointer",color:"#aaa",fontSize:18,lineHeight:1,padding:"0 2px"}}>×</button>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      ):<p style={{fontSize:13,color:"#bbb",textAlign:"center",margin:"2rem 0"}}>お手伝いがまだ登録されていません</p>}
+      {dirty&&<button onClick={()=>{onSave(items);setDirty(false);}} style={btnS({background:COLOR.chore,color:"#fff",border:"none",width:"100%"})}>保存</button>}
+    </div>
+  );
+}
+
+// 小遣い手帳ページ
+function AllowancePage({allowanceEntries,onSave}){
+  const[entries,setEntries]=useState(allowanceEntries||[]);
+  const[showForm,setShowForm]=useState(false);
+  const[form,setForm]=useState({type:"income",category:INCOME_CATEGORIES[0],amount:"",memo:"",date:new Date().toISOString().slice(0,10)});
+  const[dirty,setDirty]=useState(false);
+  const[filterType,setFilterType]=useState("all");
+
+  const totalIncome=entries.filter(e=>e.type==="income").reduce((s,e)=>s+(parseInt(e.amount)||0),0);
+  const totalExpense=entries.filter(e=>e.type==="expense").reduce((s,e)=>s+(parseInt(e.amount)||0),0);
+  const balance=totalIncome-totalExpense;
+
+  function addEntry(){
+    const amt=parseInt(form.amount);
+    if(!amt||amt<=0) return;
+    const newEntry={...form,id:"a"+Date.now()};
+    const newList=[newEntry,...entries].sort((a,b)=>b.date.localeCompare(a.date));
+    setEntries(newList);
+    setForm({type:"income",category:INCOME_CATEGORIES[0],amount:"",memo:"",date:new Date().toISOString().slice(0,10)});
+    setShowForm(false);setDirty(true);
+  }
+  function removeEntry(id){setEntries(p=>p.filter(e=>e.id!==id));setDirty(true);}
+
+  const filtered=filterType==="all"?entries:entries.filter(e=>e.type===filterType);
+
+  // カテゴリ別集計
+  const expByCategory={};
+  entries.filter(e=>e.type==="expense").forEach(e=>{
+    expByCategory[e.category]=(expByCategory[e.category]||0)+(parseInt(e.amount)||0);
+  });
+
+  return(
+    <div>
+      {/* 残高サマリー */}
+      <div style={{background:"linear-gradient(135deg,#2C3E50,#3498DB)",borderRadius:"16px",padding:"20px",marginBottom:16,color:"#fff"}}>
+        <p style={{fontSize:12,margin:"0 0 4px",opacity:0.8}}>現在の残金</p>
+        <p style={{fontSize:32,fontWeight:700,margin:"0 0 16px",letterSpacing:-1}}>{fmtYen(balance)}</p>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+          <div style={{background:"rgba(255,255,255,0.15)",borderRadius:"10px",padding:"10px"}}>
+            <p style={{fontSize:11,margin:"0 0 2px",opacity:0.8}}>収入合計</p>
+            <p style={{fontSize:18,fontWeight:600,margin:0,color:"#7FE8B0"}}>{fmtYen(totalIncome)}</p>
+          </div>
+          <div style={{background:"rgba(255,255,255,0.15)",borderRadius:"10px",padding:"10px"}}>
+            <p style={{fontSize:11,margin:"0 0 2px",opacity:0.8}}>支出合計</p>
+            <p style={{fontSize:18,fontWeight:600,margin:0,color:"#FFB3B3"}}>{fmtYen(totalExpense)}</p>
+          </div>
+        </div>
+      </div>
+
+      {/* カテゴリ別支出 */}
+      {Object.keys(expByCategory).length>0&&(
+        <div style={{...cardS,marginBottom:16}}>
+          <p style={{fontSize:13,fontWeight:500,color:"#555",margin:"0 0 10px"}}>支出カテゴリ</p>
+          {Object.entries(expByCategory).sort((a,b)=>b[1]-a[1]).map(([cat,amt])=>(
+            <div key={cat} style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+              <span style={{fontSize:13,color:"#555"}}>{cat}</span>
+              <span style={{fontSize:13,fontWeight:500,color:COLOR.allowance}}>{fmtYen(amt)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* 入力フォーム */}
+      {showForm?(
+        <div style={{...cardS,border:`1px solid ${COLOR.chore}44`}}>
+          <p style={{fontSize:14,fontWeight:500,color:"#333",margin:"0 0 12px"}}>新しい記録</p>
+          <div style={{display:"flex",gap:6,marginBottom:12}}>
+            {[{v:"income",l:"収入"},{v:"expense",l:"支出"}].map(({v,l})=>(
+              <button key={v} onClick={()=>{setForm(f=>({...f,type:v,category:v==="income"?INCOME_CATEGORIES[0]:EXPENSE_CATEGORIES[0]}));}}
+                style={{flex:1,padding:"8px",fontSize:14,borderRadius:"8px",border:"0.5px solid",
+                  borderColor:form.type===v?(v==="income"?"#27AE60":COLOR.allowance):"#ccc",
+                  background:form.type===v?(v==="income"?"#EAF5EE":"#FCEBEB"):"#fff",
+                  color:form.type===v?(v==="income"?"#27AE60":COLOR.allowance):"#888",cursor:"pointer",fontWeight:form.type===v?500:400}}>
+                {v==="income"?"+ 収入":"- 支出"}
+              </button>
+            ))}
+          </div>
+          <label style={lbl}>カテゴリ</label>
+          <select value={form.category} onChange={e=>setForm(f=>({...f,category:e.target.value}))}
+            style={{...inpS,marginBottom:10,appearance:"none"}}>
+            {(form.type==="income"?INCOME_CATEGORIES:EXPENSE_CATEGORIES).map(c=><option key={c} value={c}>{c}</option>)}
+          </select>
+          <label style={lbl}>金額（円）</label>
+          <input type="number" min="1" placeholder="金額を入力" value={form.amount} onChange={e=>setForm(f=>({...f,amount:e.target.value}))} style={{...inpS,marginBottom:10}}/>
+          <label style={lbl}>日付</label>
+          <input type="date" value={form.date} onChange={e=>setForm(f=>({...f,date:e.target.value}))} style={{...inpS,marginBottom:10}}/>
+          <label style={lbl}>メモ（任意）</label>
+          <input placeholder="例：誕生日プレゼント" value={form.memo} onChange={e=>setForm(f=>({...f,memo:e.target.value}))} style={{...inpS,marginBottom:12}}/>
+          <div style={{display:"flex",gap:8}}>
+            <button onClick={addEntry} style={btnS({background:form.type==="income"?"#27AE60":COLOR.allowance,color:"#fff",border:"none",flex:1})}>追加</button>
+            <button onClick={()=>setShowForm(false)} style={btnS()}>キャンセル</button>
+          </div>
+        </div>
+      ):(
+        <button onClick={()=>setShowForm(true)} style={btnS({width:"100%",marginBottom:14,borderColor:COLOR.chore,color:COLOR.chore,padding:"10px",fontSize:14})}>+ 収入・支出を記録する</button>
+      )}
+
+      {dirty&&<button onClick={()=>{onSave(entries);setDirty(false);}} style={btnS({background:"#333",color:"#fff",border:"none",width:"100%",marginBottom:14})}>💾 保存する</button>}
+
+      {/* フィルター */}
+      <div style={{display:"flex",gap:4,marginBottom:10}}>
+        {[{v:"all",l:"すべて"},{v:"income",l:"収入"},{v:"expense",l:"支出"}].map(({v,l})=>(
+          <button key={v} onClick={()=>setFilterType(v)} style={btnS({flex:1,fontSize:12,padding:"6px",fontWeight:filterType===v?500:400,borderColor:filterType===v?"#555":"#ccc",background:filterType===v?"#f5f5f3":"#fff"})}>{l}</button>
+        ))}
+      </div>
+
+      {/* 履歴リスト */}
+      {filtered.length===0?(
+        <p style={{fontSize:13,color:"#bbb",textAlign:"center",margin:"2rem 0"}}>記録がありません</p>
+      ):(
+        <div style={{display:"flex",flexDirection:"column",gap:6}}>
+          {filtered.map(e=>(
+            <div key={e.id} style={{background:"#fff",borderRadius:"10px",padding:"10px 12px",border:"0.5px solid #eee",display:"flex",alignItems:"center",gap:10}}>
+              <div style={{width:36,height:36,borderRadius:"50%",background:e.type==="income"?"#EAF5EE":"#FCEBEB",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,flexShrink:0}}>
+                {e.type==="income"?"💰":"💸"}
+              </div>
+              <div style={{flex:1,minWidth:0}}>
+                <p style={{fontSize:13,fontWeight:500,color:"#333",margin:"0 0 2px",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{e.category}{e.memo?`・${e.memo}`:""}</p>
+                <p style={{fontSize:11,color:"#aaa",margin:0}}>{e.date}</p>
+              </div>
+              <span style={{fontSize:15,fontWeight:600,color:e.type==="income"?"#27AE60":COLOR.allowance,whiteSpace:"nowrap"}}>
+                {e.type==="income"?"+":"-"}{fmtYen(e.amount)}
+              </span>
+              <button onClick={()=>removeEntry(e.id)} style={{background:"none",border:"none",cursor:"pointer",color:"#ccc",fontSize:18,padding:"0 2px",lineHeight:1}}>×</button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function MenuListPage({color,menus,onSave}){
   const[items,setItems]=useState(menus);
   const[input,setInput]=useState("");
@@ -535,7 +796,7 @@ function MenuListPage({color,menus,onSave}){
 }
 
 export default function App(){
-  const[appData,setAppData]=useState({records:{},monthGoals:{},monthReviews:{},soloMenus:[],trainMenus:[]});
+  const[appData,setAppData]=useState({records:{},monthGoals:{},monthReviews:{},soloMenus:[],trainMenus:[],choreList:[],allowanceEntries:[]});
   const[loading,setLoading]=useState(true);
   const[saving,setSaving]=useState(false);
   const[page,setPage]=useState("calendar");
@@ -551,6 +812,7 @@ export default function App(){
   const[trainForm,setTrainForm]=useState({menus:[]});
   const[trainInput,setTrainInput]=useState("");
   const[gamesList,setGamesList]=useState([newGame()]);
+  const[choresList,setChoresList]=useState([newChore()]);
   const[daySummary,setDaySummary]=useState(newDaySummary());
   const[statsTab,setStatsTab]=useState("month");
   const[parentComment,setParentComment]=useState("");
@@ -563,9 +825,17 @@ export default function App(){
   const records=appData.records||{};
   const monthGoals=appData.monthGoals||{};
   const monthReviews=appData.monthReviews||{};
+  const choreList=appData.choreList||[];
+  const allowanceEntries=appData.allowanceEntries||[];
   const goalKey=`${calYear}-${String(calMonth+1).padStart(2,"0")}`;
   const currentGoal=monthGoals[goalKey]||newMonthGoal();
   const currentReview=monthReviews[goalKey]||null;
+
+  // お手伝い金額集計
+  const choreStats=computeChoreStats(records,choreList);
+  const monthKey=`${calYear}-${String(calMonth+1).padStart(2,"0")}`;
+  const monthChoreTotal=choreStats.byMonth[monthKey]||0;
+  const yearChoreTotal=choreStats.byYear[String(calYear)]||0;
 
   async function persistDay(date,dayData){
     setAppData(p=>({...p,records:{...p.records,[date]:dayData}}));
@@ -575,7 +845,11 @@ export default function App(){
   async function persistMeta(meta){
     const newData={...appData,...meta};
     setAppData(newData);
-    await saveMetaToSupabase({monthGoals:newData.monthGoals,monthReviews:newData.monthReviews,soloMenus:newData.soloMenus,trainMenus:newData.trainMenus});
+    await saveMetaToSupabase({
+      monthGoals:newData.monthGoals,monthReviews:newData.monthReviews,
+      soloMenus:newData.soloMenus,trainMenus:newData.trainMenus,
+      choreList:newData.choreList,allowanceEntries:newData.allowanceEntries
+    });
   }
 
   const recent3Months=getCompletedMonths(records,calYear,calMonth,3);
@@ -622,6 +896,7 @@ export default function App(){
     if(type==="solo") setSolosList(r.solos?.length>0?r.solos.map(s=>({...newSolo(),...s})):[newSolo()]);
     else if(type==="team") setTeamsList(r.teams?.length>0?r.teams.map(t=>({...newTeam(),...t})):[newTeam()]);
     else if(type==="training"){setTrainForm(r.training||{menus:[]});setTrainInput("");}
+    else if(type==="chores") setChoresList(r.chores?.length>0?r.chores.map(c=>({...newChore(),...c})):[newChore()]);
     else{setGamesList(r.games?.length>0?r.games.map(g=>({...newGame(),...g})):[newGame()]);setDaySummary(r.daySummary||newDaySummary());}
     setEditMode(type);
   }
@@ -632,6 +907,7 @@ export default function App(){
     if(editMode==="solo") data={solos:solosList};
     else if(editMode==="team") data={teams:teamsList};
     else if(editMode==="training") data={training:trainForm};
+    else if(editMode==="chores") data={chores:choresList};
     else data={games:gamesList,daySummary};
     const newRec={...(records[sel]||{}),...data};
     await persistDay(sel,newRec);
@@ -686,12 +962,18 @@ export default function App(){
 
   const HamburgerMenu=()=>(
     <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,zIndex:100,display:"flex"}}>
-      <div style={{width:240,background:"#fff",boxShadow:"2px 0 12px rgba(0,0,0,0.12)",padding:"1rem",display:"flex",flexDirection:"column",gap:4}}>
+      <div style={{width:240,background:"#fff",boxShadow:"2px 0 12px rgba(0,0,0,0.12)",padding:"1rem",display:"flex",flexDirection:"column",gap:4,overflowY:"auto"}}>
         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16}}>
           <span style={{fontSize:16,fontWeight:500,color:"#333"}}>メニュー</span>
           <button onClick={()=>setMenuOpen(false)} style={{background:"none",border:"none",fontSize:22,cursor:"pointer",color:"#888",lineHeight:1}}>×</button>
         </div>
-        {[{id:"calendar",label:"📅　カレンダー",color:"#333"},{id:"soloMenu",label:"🏀　自主練メニュー",color:COLOR.solo},{id:"trainMenu",label:"💪　トレーニングメニュー",color:COLOR.train}].map(({id,label,color})=>(
+        {[
+          {id:"calendar",label:"📅　カレンダー",color:"#333"},
+          {id:"soloMenu",label:"🏀　自主練メニュー",color:COLOR.solo},
+          {id:"trainMenu",label:"💪　トレーニングメニュー",color:COLOR.train},
+          {id:"choreMenu",label:"🧹　お手伝い一覧",color:COLOR.chore},
+          {id:"allowance",label:"💰　小遣い手帳",color:"#2980B9"},
+        ].map(({id,label,color})=>(
           <button key={id} onClick={()=>{setPage(id);setMenuOpen(false);setView("calendar");}} style={{...btnS(),textAlign:"left",padding:"12px 14px",fontWeight:page===id?500:400,borderColor:page===id?"#ccc":"transparent",background:page===id?"#f5f5f3":"transparent",color,fontSize:14}}>{label}</button>
         ))}
       </div>
@@ -721,6 +1003,23 @@ export default function App(){
     </div>
   );
 
+  if(page==="choreMenu") return(
+    <div style={{padding:"1rem",maxWidth:520,margin:"0 auto"}}>
+      {menuOpen&&<HamburgerMenu/>}
+      <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:20}}><HamBtn/><span style={{fontSize:16,fontWeight:500,color:"#333"}}>お手伝い一覧</span></div>
+      <ChoreListPage choreList={appData.choreList||[]} onSave={async items=>await persistMeta({choreList:items})}/>
+    </div>
+  );
+
+  if(page==="allowance") return(
+    <div style={{padding:"1rem",maxWidth:520,margin:"0 auto"}}>
+      {menuOpen&&<HamburgerMenu/>}
+      <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:20}}><HamBtn/><span style={{fontSize:16,fontWeight:500,color:"#333"}}>小遣い手帳</span></div>
+      <AllowancePage allowanceEntries={appData.allowanceEntries||[]} onSave={async entries=>await persistMeta({allowanceEntries:entries})}/>
+    </div>
+  );
+
+  // ---- 日別ビュー ----
   if(view==="day"){
     const rec=getRec(sel);
     const[y,m,d]=sel.split("-");
@@ -730,6 +1029,8 @@ export default function App(){
     const totals=games.length>0?sumGames(games):null;
     const solos=rec.solos||[];
     const teams=rec.teams||[];
+    const chores=rec.chores||[];
+    const dayChoreTotal=chores.reduce((s,c)=>s+(parseInt(c.amount)||0),0);
 
     if(editMode==="solo") return(
       <div style={{padding:"1rem",maxWidth:520,margin:"0 auto"}}>
@@ -799,6 +1100,28 @@ export default function App(){
       </div>
     );
 
+    if(editMode==="chores") return(
+      <div style={{padding:"1rem",maxWidth:520,margin:"0 auto"}}>
+        <button onClick={()=>setEditMode(null)} style={btnS()}>← 戻る</button>
+        <h2 style={{fontSize:18,fontWeight:500,margin:"1rem 0 1.25rem",color:"#333"}}>お手伝いを記録</h2>
+        {choresList.map((c,i)=>(
+          <ChoreForm key={i} chore={c} index={i} total={choresList.length}
+            onChange={updated=>setChoresList(list=>list.map((x,j)=>j===i?updated:x))}
+            onDelete={()=>setChoresList(list=>list.filter((_,j)=>j!==i))}
+            choreList={choreList}/>
+        ))}
+        <button onClick={()=>setChoresList(l=>[...l,newChore()])} style={btnS({width:"100%",marginBottom:16,borderColor:COLOR.chore,color:COLOR.chore})}>+ お手伝いを追加</button>
+        <div style={{background:"#FFF8ED",borderRadius:"10px",padding:"10px 14px",marginBottom:16,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <span style={{fontSize:13,color:"#888"}}>本日の合計</span>
+          <span style={{fontSize:18,fontWeight:600,color:COLOR.chore}}>{fmtYen(choresList.reduce((s,c)=>s+(parseInt(c.amount)||0),0))}</span>
+        </div>
+        <div style={{display:"flex",gap:8}}>
+          <button onClick={saveEdit} disabled={saving} style={btnS({background:COLOR.chore,color:"#fff",border:"none",flex:1,opacity:saving?0.7:1})}>{saving?"保存中...":"保存"}</button>
+          {chores.length>0&&<button onClick={()=>delRecord("chores")} disabled={saving} style={btnS({color:"#e24b4a",borderColor:"#e24b4a"})}>削除</button>}
+        </div>
+      </div>
+    );
+
     if(editMode==="games") return(
       <div style={{padding:"1rem",maxWidth:520,margin:"0 auto"}}>
         <button onClick={()=>setEditMode(null)} style={btnS()}>← 戻る</button>
@@ -822,6 +1145,7 @@ export default function App(){
       </div>
     );
 
+    // 日別詳細表示
     return(
       <div style={{padding:"1rem",maxWidth:520,margin:"0 auto"}}>
         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16}}>
@@ -833,17 +1157,17 @@ export default function App(){
         </div>
         <h2 style={{fontSize:18,fontWeight:500,margin:"0 0 1.25rem",color:"#333"}}>{label}</h2>
 
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:8}}>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:6}}>
           {[{type:"solo",label:"自主練",color:COLOR.solo},{type:"team",label:"チーム練習",color:COLOR.team}].map(({type,label,color})=>(
             <button key={type} onClick={()=>startEdit(type)} style={btnS({borderColor:color,color:color,fontSize:12,padding:"8px 4px",textAlign:"center"})}>
               {type==="solo"?solos.length>0?"自主練を編集":"+ 自主練":teams.length>0?"チーム練習を編集":"+ チーム練習"}
             </button>
           ))}
         </div>
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:20}}>
-          {[{type:"training",label:"トレーニング",color:COLOR.train},{type:"games",label:"試合",color:COLOR.game}].map(({type,label,color})=>(
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6,marginBottom:20}}>
+          {[{type:"training",label:"トレーニング",color:COLOR.train},{type:"games",label:"試合",color:COLOR.game},{type:"chores",label:"お手伝い",color:COLOR.chore}].map(({type,label,color})=>(
             <button key={type} onClick={()=>startEdit(type)} style={btnS({borderColor:color,color:color,fontSize:12,padding:"8px 4px",textAlign:"center"})}>
-              {type==="games"?games.length>0?"試合を編集":"+ 試合":rec[type]?`${label}を編集`:`+ ${label}`}
+              {type==="games"?games.length>0?"試合を編集":"+ 試合":type==="chores"?chores.length>0?"お手伝いを編集":"+ お手伝い":rec[type]?`${label}を編集`:`+ ${label}`}
             </button>
           ))}
         </div>
@@ -897,6 +1221,26 @@ export default function App(){
             <div style={{display:"flex",flexDirection:"column",gap:3}}>
               {rec.training.menus.map((m,i)=><div key={i} style={{display:"flex",alignItems:"center",gap:6}}><span style={{width:5,height:5,borderRadius:"50%",background:COLOR.train,flexShrink:0}}/><span style={{fontSize:13,color:"#333"}}>{m}</span></div>)}
             </div>
+          </div>
+        )}
+
+        {/* お手伝い表示 */}
+        {chores.length>0&&(
+          <div style={cardS}>
+            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
+              <span style={{width:8,height:8,borderRadius:"50%",background:COLOR.chore,flexShrink:0}}/>
+              <span style={{fontWeight:500,fontSize:15,color:"#333"}}>お手伝い</span>
+              <span style={{fontSize:13,fontWeight:600,color:COLOR.chore,marginLeft:"auto"}}>{fmtYen(dayChoreTotal)}</span>
+            </div>
+            <div style={{display:"flex",flexDirection:"column",gap:4}}>
+              {chores.map((c,i)=>(
+                <div key={i} style={{display:"flex",alignItems:"center",gap:8,background:"#fff",borderRadius:"8px",padding:"7px 10px"}}>
+                  <span style={{fontSize:13,color:"#333",flex:1}}>{c.name||"内容未入力"}</span>
+                  <span style={{fontSize:13,fontWeight:500,color:COLOR.chore}}>{fmtYen(c.amount)}</span>
+                </div>
+              ))}
+            </div>
+            {chores[0]?.memo&&<p style={{fontSize:12,color:"#888",margin:"8px 0 0",whiteSpace:"pre-wrap"}}>{chores[0].memo}</p>}
           </div>
         )}
 
@@ -956,7 +1300,7 @@ export default function App(){
           </div>
         )}
 
-        {solos.length===0&&teams.length===0&&!rec.training&&games.length===0&&<p style={{fontSize:14,color:"#bbb",textAlign:"center",marginTop:32}}>まだ記録がありません</p>}
+        {solos.length===0&&teams.length===0&&!rec.training&&games.length===0&&chores.length===0&&<p style={{fontSize:14,color:"#bbb",textAlign:"center",marginTop:32}}>まだ記録がありません</p>}
 
         <div style={{marginTop:16,borderTop:"0.5px solid #ddd",paddingTop:14}}>
           <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
@@ -981,6 +1325,7 @@ export default function App(){
     );
   }
 
+  // ---- カレンダーメインビュー ----
   const tabDefs=[
     {id:"month",label:`${calMonth+1}月`},
     {id:"avg3",label:"3ヶ月平均"},
@@ -997,6 +1342,19 @@ export default function App(){
         <button onClick={prevM} style={btnS({padding:"6px 12px"})}>‹</button>
         <span style={{fontSize:17,fontWeight:500,color:"#333",flex:1,textAlign:"center"}}>{calYear}年{calMonth+1}月</span>
         <button onClick={nextM} style={btnS({padding:"6px 12px"})}>›</button>
+      </div>
+
+      {/* お手伝い金額サマリー */}
+      <div style={{background:"linear-gradient(135deg,#F39C12,#E67E22)",borderRadius:"12px",padding:"12px 16px",marginBottom:14,color:"#fff",display:"flex",gap:10}}>
+        <div style={{flex:1,textAlign:"center"}}>
+          <p style={{fontSize:11,margin:"0 0 2px",opacity:0.85}}>{calMonth+1}月のお手伝い</p>
+          <p style={{fontSize:20,fontWeight:700,margin:0}}>{fmtYen(monthChoreTotal)}</p>
+        </div>
+        <div style={{width:"0.5px",background:"rgba(255,255,255,0.3)"}}/>
+        <div style={{flex:1,textAlign:"center"}}>
+          <p style={{fontSize:11,margin:"0 0 2px",opacity:0.85}}>{calYear}年 年間合計</p>
+          <p style={{fontSize:20,fontWeight:700,margin:0}}>{fmtYen(yearChoreTotal)}</p>
+        </div>
       </div>
 
       <div style={{background:"#f5f5f3",borderRadius:"12px",padding:"12px 14px",marginBottom:16}}>
@@ -1038,17 +1396,19 @@ export default function App(){
           const day=i+1,ds=fmtDate(calYear,calMonth,day),dot=dotColor(ds);
           const isToday=ds===fmtDate(today.getFullYear(),today.getMonth(),today.getDate());
           const dow=(firstDay+i)%7;
+          const dayChore=choreStats.byDate[ds]||0;
           return(
-            <button key={day} onClick={()=>openDay(day)} style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"6px 0",border:"0.5px solid",borderColor:isToday?COLOR.solo:"#ddd",borderRadius:"8px",background:isToday?"#E1F5EE":"#fff",cursor:"pointer",minHeight:44,gap:4}}>
+            <button key={day} onClick={()=>openDay(day)} style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"4px 0",border:"0.5px solid",borderColor:isToday?COLOR.solo:"#ddd",borderRadius:"8px",background:isToday?"#E1F5EE":"#fff",cursor:"pointer",minHeight:48,gap:2}}>
               <span style={{fontSize:14,fontWeight:isToday?500:400,color:dow===0?"#E24B4A":dow===6?"#378ADD":"#333"}}>{day}</span>
               {dot&&<span style={{width:7,height:7,borderRadius:"50%",background:dot}}/>}
+              {dayChore>0&&<span style={{fontSize:9,color:COLOR.chore,fontWeight:600,lineHeight:1}}>¥{dayChore}</span>}
             </button>
           );
         })}
       </div>
 
       <div style={{display:"flex",gap:10,marginBottom:16,justifyContent:"center",flexWrap:"wrap"}}>
-        {[{c:COLOR.solo,l:"自主練"},{c:COLOR.team,l:"チーム練習"},{c:COLOR.game,l:"試合"},{c:COLOR.train,l:"トレーニング"},{c:COLOR.both,l:"複数"}].map(({c,l})=>(
+        {[{c:COLOR.solo,l:"自主練"},{c:COLOR.team,l:"チーム練習"},{c:COLOR.game,l:"試合"},{c:COLOR.train,l:"トレーニング"},{c:COLOR.both,l:"複数"},{c:COLOR.chore,l:"お手伝い¥"}].map(({c,l})=>(
           <div key={l} style={{display:"flex",alignItems:"center",gap:5}}>
             <span style={{width:8,height:8,borderRadius:"50%",background:c}}/>
             <span style={{fontSize:11,color:"#888"}}>{l}</span>
