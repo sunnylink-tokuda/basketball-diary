@@ -11,7 +11,7 @@
 ## ステージングへの適用
 
 1. Supabaseのステージングプロジェクトを用意し、既存recordsの構造とテスト用日記をコピーします。SQL Editorで `supabase/chappy-advice.sql` を一度だけ実行してください。CLIの導入がこの実行環境で失敗したため、このファイルはCLI生成のmigrationではなく、レビュー可能なセットアップSQLです。
-2. Supabase Authで保護者などのメールアカウントを作成します。AuthのSite URLとRedirect URLsにステージングサイトのオリジンを設定してください。画面は既存ユーザーへのメールリンクを使い、自動サインアップはしません。
+2. Supabase Authで保護者などのメールアドレス・パスワード付きアカウントを用意します。画面は `signInWithPassword` を使い、自動サインアップやMagic Link送信はしません。初回パスワード設定は下の手順を参照してください。
 3. Edge FunctionsのSecrets画面に `OPENAI_API_KEY` と `CHAPPY_ALLOWED_USER_IDS` を登録します。後者はAuth画面で確認した許可ユーザーUUIDのカンマ区切りです。未設定の場合、Functionは拒否します。任意の `OPENAI_MODEL` の既定値は `gpt-4o-mini` です。キーはSupabaseのSecrets画面で入力し、ソースコード・GitHub・VITE環境変数・ターミナル履歴には入れないでください。
 4. CLIの `supabase --help` / `supabase functions deploy --help` を確認し、ステージングをリンクして `supabase functions deploy chappy-advice` でデプロイします。`verify_jwt = true` を維持してください。`SUPABASE_URL` と `SUPABASE_SERVICE_ROLE_KEY` はEdge Functionの標準サーバー環境変数を使い、ブラウザーには渡しません。
 5. フロントエンドの既存 `VITE_SUPABASE_URL` と `VITE_SUPABASE_ANON_KEY` はステージングの公開用キーを設定します。`npm ci` / `npm test` / `npm run build` で確認できます。
@@ -28,6 +28,24 @@
 
 ## 確認項目
 
-ステージングでは、メールログイン後に日記保存→生成中→3項目表示→再読み込み後も保存結果が表示されることを確認します。別の日に移動しても結果が混ざらないこと、編集で更新されること、APIの失敗時も日記が残ること、未ログイン・許可外ユーザー・匿名ユーザーが生成できないことも確認してください。
+ステージングでは、メールアドレス＋パスワードでログイン後に日記保存→生成中→3項目表示→再読み込み後も保存結果が表示されることを確認します。別の日に移動しても結果が混ざらないこと、編集で更新されること、APIの失敗時も日記が残ること、未ログイン・許可外ユーザー・匿名ユーザーが生成できないことも確認してください。
 
-SQLはローカルのPostgres互換エンジンPGliteでキャッシュ・競合・利用制限・RLS/権限・削除連動を検証します。本番SupabaseのAdvisorsと実際のメール・OpenAI呼び出しは、ステージング適用後に確認してください。
+SQLはローカルのPostgres互換エンジンPGliteでキャッシュ・競合・利用制限・RLS/権限・削除連動を検証します。本番SupabaseのAdvisorsと実際のAuth・OpenAI呼び出しは、ステージング適用後に確認してください。
+
+## メール＋パスワードへの切り替え手順
+
+今回のログイン修正では、SQLの再実行やEdge Functionの再デプロイ、Secretの変更は不要です。変更ブランチのフロントエンドをプレビュー・デプロイしてください。mainへのマージは不要です。
+
+1. Supabaseの対象プロジェクトを開き、AuthenticationのSign In / Providers（画面によってはProviders）でEmailが有効になっていることを確認します。メール確認を無効にする必要はありません。
+2. パスワードがすでにある利用者は、そのメールアドレスとパスワードでログインするだけです。
+3. Magic Linkだけを使っていた利用者がまだログイン中なら、日付の詳細画面を開き、チャッピー欄の「パスワードを設定・変更」を押します。「新しいパスワード」と確認欄に同じものを入力し、「パスワードを保存」を押します。8文字以上で、Supabase側のパスワード条件にも合わせてください。
+4. ログインしておらず、パスワードもない場合は、Authentication → URL ConfigurationのSite URLを変更ブランチのサイトURLに設定します。Redirect URLsにもそのURLを登録します。Authentication → Usersで**既存の利用者**を選び、パスワード再設定メールを送る操作（Reset password / Send password recovery）を使います。届いたリンクを開いてから日付の詳細画面に進み、前の手順でパスワードを設定してください。標準のSupabaseメールテンプレートのConfirmationURLを使う想定です。カスタムテンプレートが別の未実装パスへ送る場合は設定を見直してください。
+5. 初回の再設定メールにもメール送信制限はかかります。制限中なら解除を待って一度だけ送り、繰り返し送らないでください。通常のパスワードログインではログインメールを送りません。
+6. 既存利用者を削除・作り直す必要はありません。同じユーザーUUIDを使うので、SecretのCHAPPY_ALLOWED_USER_IDSはそのままです。新しいアカウントを作った場合だけ、新しいUUIDを許可リストへ登録します。
+7. 一度ログアウトし、メールアドレス＋パスワードでログインしてアドバイスが出ることを確認します。ページを再読み込みしてもログイン状態が続くことと、ログアウトすると入力欄に戻ることを確認してください。
+
+Supabase SDKがブラウザーのlocalStorageにセッションを保持し、トークンを自動更新します。アプリはパスワードそのものをlocalStorageやDBへ保存しません。ブラウザーの保存データを削除した場合やセッションが失効した場合には、再ログインが必要です。保護者の管理下にある端末で利用してください。
+
+パスワードをこのチャットやGitHubには貼らないでください。パスワード設定時に再認証を求められる設定なら、再ログイン直後または新しい再設定リンクから実施してください。
+
+参考: [Supabaseのパスワード認証](https://supabase.com/docs/guides/auth/passwords)、[signInWithPassword](https://supabase.com/docs/reference/javascript/auth-signinwithpassword)。
