@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { supabase } from './supabase.js';
+import ChappyAdvice from './ChappyAdvice.jsx';
 
 const COLOR = { solo: "#1D9E75", team: "#378ADD", game: "#D85A30", train: "#7F77DD", both: "#888", chore: "#E8A020" };
 const TEAM_OPTIONS = ["キングス","EMBC","KINGDOME","T's","その他"];
@@ -73,7 +74,7 @@ async function loadFromSupabase(){
 
 async function saveDayToSupabase(date,dayData){
   const{error}=await supabase.from('records').upsert({date,data:dayData,updated_at:new Date().toISOString()});
-  if(error) console.error(error);
+  if(error) throw error;
 }
 
 async function saveMetaToSupabase(meta){
@@ -973,8 +974,8 @@ export default function App(){
   const yearChoreTotal=choreStats.byYear[String(calYear)]||0;
 
   async function persistDay(date,dayData){
-    setAppData(p=>({...p,records:{...p.records,[date]:dayData}}));
     await saveDayToSupabase(date,dayData);
+    setAppData(p=>({...p,records:{...p.records,[date]:dayData}}));
   }
 
   async function persistMeta(meta){
@@ -1045,31 +1046,40 @@ export default function App(){
     else if(editMode==="chores") data={chores:choresList};
     else data={games:gamesList,daySummary};
     const newRec={...(records[sel]||{}),...data};
-    await persistDay(sel,newRec);
-    setSaving(false);setEditMode(null);
+    try {
+      await persistDay(sel,newRec);
+      setEditMode(null);
+    } catch {
+      alert("日記を保存できませんでした。入力内容は残っています。もう一度保存してね。");
+    } finally { setSaving(false); }
   }
 
   async function saveParentComment(){
     setSaving(true);
     const newRec={...(records[sel]||{}),parentComment};
-    await persistDay(sel,newRec);
-    setSaving(false);
+    try { await persistDay(sel,newRec); return true; }
+    catch { alert("コメントを保存できませんでした。もう一度ためしてね。"); return false; }
+    finally { setSaving(false); }
   }
 
   async function delRecord(type){
     setSaving(true);
+    try {
     const rec={...(records[sel]||{})};
     if(type==="games"){delete rec.games;delete rec.daySummary;}else delete rec[type];
     let newRecords;
     if(!Object.keys(rec).length){
-      await supabase.from('records').delete().eq('date',sel);
+      const {error}=await supabase.from('records').delete().eq('date',sel);
+      if(error) throw error;
       newRecords={...records};delete newRecords[sel];
     } else {
       await persistDay(sel,rec);
       newRecords={...records,[sel]:rec};
     }
     setAppData(p=>({...p,records:newRecords}));
-    setSaving(false);setEditMode(null);
+    setEditMode(null);
+    } catch { alert("記録を削除できませんでした。もう一度ためしてね。"); }
+    finally { setSaving(false); }
   }
 
   async function saveGoal(){
@@ -1445,6 +1455,8 @@ export default function App(){
 
         {solos.length===0&&teams.length===0&&!rec.training&&games.length===0&&chores.length===0&&<p style={{fontSize:14,color:"#bbb",textAlign:"center",marginTop:32}}>まだ記録がありません</p>}
 
+        <ChappyAdvice date={sel} record={records[sel]} />
+
         <div style={{marginTop:16,borderTop:"0.5px solid #ddd",paddingTop:14}}>
           <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
             <p style={{fontSize:13,fontWeight:500,color:COLOR.team,margin:0}}>両親からのコメント</p>
@@ -1458,7 +1470,7 @@ export default function App(){
             <div>
               <textarea rows={3} placeholder="お父さん・お母さんからのコメントを入力..." value={parentComment} onChange={e=>setParentComment(e.target.value)} style={{...taS,marginBottom:8,borderColor:COLOR.team+"66"}}/>
               <div style={{display:"flex",gap:8}}>
-                <button onClick={async()=>{await saveParentComment();setEditingParentComment(false);}} disabled={saving} style={btnS({background:COLOR.team,color:"#fff",border:"none",flex:1,opacity:saving?0.7:1})}>{saving?"保存中...":"コメントを保存"}</button>
+                <button onClick={async()=>{if(await saveParentComment())setEditingParentComment(false);}} disabled={saving} style={btnS({background:COLOR.team,color:"#fff",border:"none",flex:1,opacity:saving?0.7:1})}>{saving?"保存中...":"コメントを保存"}</button>
                 {rec.parentComment&&<button onClick={()=>setEditingParentComment(false)} style={btnS()}>キャンセル</button>}
               </div>
             </div>
