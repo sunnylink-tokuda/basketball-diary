@@ -19,6 +19,7 @@ function fixture(url = 'https://example.invalid/', blockedStorage = false, store
   const auth = {
     onAuthStateChange: fn => { callback = fn; },
     getSession: () => initialization,
+    setSession: async () => { await initialization; return { data: { session }, error: null }; },
     updateUser: async ({ password }) => {
       writes++;
       assert.equal(password, 'new-test-password');
@@ -49,7 +50,7 @@ function fixture(url = 'https://example.invalid/', blockedStorage = false, store
 }
 
 test('waits for auth; pre-mount recovery event survives URL cleanup and StrictMode mounting', async () => {
-  const f = fixture('https://example.invalid/#type=recovery&access_token=test');
+  const f = fixture('https://example.invalid/#type=recovery&access_token=test&refresh_token=test-refresh');
   f.event('PASSWORD_RECOVERY');
   let calendars = 0;
   function Calendar() { calendars++; return React.createElement('p', {}, 'calendar'); }
@@ -77,7 +78,7 @@ test('PASSWORD_RECOVERY without a URL marker overrides normal navigation', async
 });
 
 test('Safari unavailable storage still permits validated recovery; errors do not redirect', async () => {
-  const f = fixture('https://example.invalid/#type=recovery&access_token=test', true);
+  const f = fixture('https://example.invalid/#type=recovery&access_token=test&refresh_token=test-refresh', true);
   f.event('PASSWORD_RECOVERY'); f.initialize(); await f.controller.initialized;
   let tree;
   await act(async () => { tree = TestRenderer.create(React.createElement(f.Component, {}, React.createElement('p', {}, 'calendar'))); });
@@ -104,7 +105,7 @@ test('Safari unavailable storage still permits validated recovery; errors do not
 });
 
 test('refresh retains unfinished recovery without storing a token or password', async () => {
-  const first = fixture('https://example.invalid/#type=recovery&access_token=test');
+  const first = fixture('https://example.invalid/#type=recovery&access_token=test&refresh_token=test-refresh');
   first.event('PASSWORD_RECOVERY'); first.initialize(); await first.controller.initialized;
   assert.deepEqual([...first.store.values()], ['pending']);
   const reloaded = fixture('https://example.invalid/', false, first.store);
@@ -123,7 +124,7 @@ test('invalid recovery cannot use an old ordinary session; expired URL shows an 
     let tree;
     await act(async () => { tree = TestRenderer.create(React.createElement(f.Component, {}, React.createElement('p', {}, 'calendar'))); });
     assert.equal(tree.root.findAllByType('input').length, 0);
-    assert.match(JSON.stringify(tree.toJSON()), /期限切れ/);
+    assert.match(JSON.stringify(tree.toJSON()), /形式|期限切れ/);
     assert.doesNotMatch(JSON.stringify(tree.toJSON()), /calendar/);
     await act(async () => tree.unmount());
   }
@@ -137,7 +138,7 @@ test('ordinary access still reaches the calendar when initialization finishes', 
 });
 
 test('SDK-delayed PASSWORD_RECOVERY is handled after getSession resolves', async () => {
-  const f = fixture('https://example.invalid/#type=recovery&access_token=test');
+  const f = fixture('https://example.invalid/#type=recovery&access_token=test&refresh_token=test-refresh');
   f.initialize(); await f.controller.initialized;
   let tree;
   await act(async () => { tree = TestRenderer.create(React.createElement(f.Component, {}, React.createElement('p', {}, 'calendar'))); });
@@ -149,7 +150,7 @@ test('SDK-delayed PASSWORD_RECOVERY is handled after getSession resolves', async
 });
 
 test('a stale initial session read cannot overwrite a newer recovery event', async () => {
-  const f = fixture('https://example.invalid/#type=recovery&access_token=test');
+  const f = fixture('https://example.invalid/#type=recovery&access_token=test&refresh_token=test-refresh');
   f.event('PASSWORD_RECOVERY');
   f.initialize(null); await f.controller.initialized;
   assert.equal(f.controller.getSnapshot().session, session);

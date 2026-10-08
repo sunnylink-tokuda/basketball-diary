@@ -32,7 +32,11 @@ export default function RecoveryGate({ children }) {
   return <main style={{ maxWidth: 440, margin: '24px auto', padding: 20 }}>
     <h1 style={{ fontSize: 22 }}>パスワードの再設定</h1>
     {state.error ? <>
-      <p role="alert">再設定リンクが無効、期限切れ、または認証できませんでした。Supabaseから新しい再設定メールを送り、最新のリンクを開いてください。</p>
+      <p role="alert">{state.reason === 'format' ? '再設定リンクの形式を確認できませんでした。メールテンプレートとリンク先の設定を確認してください。'
+        : state.reason === 'pkce' ? 'このリンクを開いたブラウザーには認証用の情報がありません。再設定を開始した同じブラウザーで開いてください。'
+        : state.reason === 'network' ? 'Supabaseへの通信に失敗しました。接続状態やSafariのサイト設定を確認してください。'
+        : state.reason === 'expired' ? '再設定リンクが期限切れ、または使用済みです。再送を繰り返さず、メール送信制限が解除されてから新しいリンクを一度取得してください。'
+        : 'リンクからセッションを取得できませんでした。Supabaseのプロジェクトとメールのリンク先が一致するか確認してください。'}</p>
       <button onClick={passwordRecovery.complete}>通常画面へ戻る</button>
     </> : saved ? <>
       <p role="status">{message}</p>
