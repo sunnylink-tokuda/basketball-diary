@@ -1,0 +1,4 @@
+project_id = "basketball-diary"
+
+[functions.chappy-advice]
+verify_jwt = true
