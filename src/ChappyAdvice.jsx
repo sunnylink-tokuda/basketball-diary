@@ -100,6 +100,13 @@ export default function ChappyAdvice({ date, record }) {
       {advice && [['good', '今日よかったところ'], ['focus', '次に意識すること'], ['mission', '次回ミッション']].map(([key, label]) => <div key={key} style={{ marginBottom: 10 }}>
         <strong style={{ fontSize: 13 }}>{label}</strong><p style={{ margin: '4px 0', fontSize: 14, whiteSpace: 'pre-wrap' }}>{advice[key]}</p>
       </div>)}
+      {advice?.growth && <section aria-label="チャッピーの成長チェック" style={{ borderTop: '1px solid #d1c7f0', paddingTop: 10 }}>
+        <h4 style={{ margin: '0 0 10px', fontSize: 15 }}>チャッピーの成長チェック</h4>
+        {[['improved', '以前と比べて成長した点'], ['ongoing', '継続して取り組んでいる課題'], ['next', '次の成長につながるポイント']].map(([key, label]) => <div key={key} style={{ marginBottom: 10 }}>
+          <strong style={{ fontSize: 13 }}>{label}</strong><p style={{ margin: '4px 0', fontSize: 14, whiteSpace: 'pre-wrap' }}>{advice.growth[key]}</p>
+        </div>)}
+        <p style={{ fontSize: 11 }}>参考にした記録：{advice.growth.evidence_dates.join('、')}</p>
+      </section>}
       {!record && <p>日記を保存すると、アドバイスが届くよ。</p>}
       {!busy && status && <button onClick={() => setRetry(n => n + 1)}>もう一度ためす</button>}
       <button disabled={authBusy} onClick={signOut} style={{ marginLeft: 8 }}>ログアウト</button>

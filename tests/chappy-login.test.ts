@@ -10,7 +10,7 @@ import TestRenderer, { act } from 'react-test-renderer';
 const require = createRequire(import.meta.url);
 const session = { user: { id: 'allowed-user' }, access_token: 'test-session' };
 
-function fixture(restored: unknown = null) {
+function fixture(restored: unknown = null, advice: unknown = { good: '工夫したね', focus: '周りを見よう', mission: 'パス前に顔を上げよう' }) {
   let callback: (event: string, session: unknown) => void;
   let failLogin = false;
   let loginCalls = 0;
@@ -31,7 +31,7 @@ function fixture(restored: unknown = null) {
       signOut: async () => { callback('SIGNED_OUT', null); return { error: null }; },
       updateUser: async ({ password }: { password: string }) => { passwordUpdates++; assert.equal(password, 'new-test-password'); return { error: null }; },
     },
-    functions: { invoke: async () => { generationCalls++; return { data: { status: 'ready', advice: { good: '工夫したね', focus: '周りを見よう', mission: 'パス前に顔を上げよう' } }, error: null }; } },
+    functions: { invoke: async () => { generationCalls++; return { data: { status: 'ready', advice }, error: null }; } },
   };
   const module = { exports: {} as { default: React.ComponentType<any> } };
   const code = transformSync(readFileSync('src/ChappyAdvice.jsx', 'utf8'), { loader: 'jsx', format: 'cjs', jsx: 'automatic' }).code;
@@ -82,4 +82,24 @@ test('restored session skips login; existing user can set password without email
   assert.equal(f.counts().passwordUpdates, 1);
   assert.equal(tree!.root.findAllByType('input').length, 0);
   await act(async () => tree!.unmount());
+});
+
+test('optional growth section shows evidence; legacy and insufficient-history advice keep three sections', async () => {
+  const base = { good: '工夫したね', focus: '周りを見よう', mission: 'パス前に顔を上げよう' };
+  for (const growth of [undefined, null, { improved: '守備を見てパスできたね', ongoing: '通り道を選ぼう', next: '空くまで待とう', evidence_dates: ['2026-10-01', '2026-10-04'] }]) {
+    const f = fixture(session, growth === undefined ? base : { ...base, growth });
+    let tree: TestRenderer.ReactTestRenderer;
+    await act(async () => { tree = TestRenderer.create(React.createElement(f.Component, { date: '2026-10-07', record: { solos: [] } })); });
+    const text = JSON.stringify(tree!.toJSON());
+    assert.match(text, /今日よかったところ/);
+    assert.match(text, /次に意識すること/);
+    assert.match(text, /次回ミッション/);
+    if (growth) {
+      assert.match(text, /チャッピーの成長チェック/);
+      assert.match(text, /守備を見てパスできたね/);
+      assert.match(text, /2026-10-01/);
+      assert.match(text, /2026-10-04/);
+    } else assert.doesNotMatch(text, /チャッピーの成長チェック/);
+    await act(async () => tree!.unmount());
+  }
 });
