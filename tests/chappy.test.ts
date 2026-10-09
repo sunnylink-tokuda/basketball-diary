@@ -116,7 +116,7 @@ test('Edge Function generates from saved data, persists, caches, and handles sta
       assert.equal(payload.store, false);
       assert.equal(payload.messages[1].content.includes('private'), false);
       assert.equal(payload.messages[1].content.includes('パスを工夫した'), true);
-      return new Response(JSON.stringify({ choices: [{ finish_reason: 'stop', message: { content: JSON.stringify(output) } }] }), { status: providerOk ? 200 : 500 });
+      return new Response(JSON.stringify({ choices: [{ finish_reason: 'stop', message: { content: JSON.stringify({ ...(output as object), grounding: { current_quote: 'パスを工夫した', past_quotes: [] } }) } }] }), { status: providerOk ? 200 : 500 });
     },
   });
   const invoke = () => handler!(new Request('https://example.invalid', { method: 'POST', headers: { Authorization: 'Bearer jwt' }, body: JSON.stringify({ date: '2026-10-07', action: 'generate', data: 'untrusted unsaved text' }) }));
@@ -144,10 +144,10 @@ test('Edge Function scopes historical reads to authenticated owner and preserves
   let calls = 0;
   let historyReads = 0;
   let cache: unknown = null;
-  const base = { good: '顔を上げたね。', focus: '守備を見てからパスしよう。', mission: '通り道がふさがったら運ぼう。' };
+  const base = { good: '「顔は上げた」と振り返れたね。', focus: '守備を見てからパスしよう。', mission: '通り道がふさがったら運ぼう。' };
   const dates = ['2026-10-01', '2026-10-04'];
   let rows = dates.map(date => ({ date, data: { daySummary: { memo: 'パスを守備に取られた' }, parentComment: 'private' }, advice: base }));
-  let output: unknown = { ...base, growth: { improved: '10/1と10/4から顔を上げる工夫を続けているね。', ongoing: 'パスを取られる課題に取り組んでいるね。', next: '受け手との間に守備がいたら、待つか運ぼう。', evidence_dates: dates } };
+  let output: unknown = { ...base, growth: { improved: '10/1と10/4から顔を上げる工夫を続けているね。', ongoing: '10/1と10/4は「パスを守備に取られた」と書いていたね。今日も同じ課題に取り組もう。', next: '受け手との間に守備がいたら、待つか運ぼう。', evidence_dates: dates } };
   const db = {
     auth: { getUser: async () => ({ data: { user: { id: 'allowed-user' } }, error: null }) },
     from: () => { const chain = { update: () => chain, eq: () => chain, is: () => chain }; return chain; },
@@ -177,7 +177,7 @@ test('Edge Function scopes historical reads to authenticated owner and preserves
       assert.deepEqual(input.history.map((row: { date: string }) => row.date), rows.length >= 2 ? dates : []);
       assert.match(payload.messages[0].content, /小学5年生の男子ガード/);
       assert.match(payload.messages[0].content, /目線、足の運び/);
-      return new Response(JSON.stringify({ choices: [{ finish_reason: 'stop', message: { content: JSON.stringify(output) } }] }));
+      return new Response(JSON.stringify({ choices: [{ finish_reason: 'stop', message: { content: JSON.stringify({ ...(output as object), grounding: { current_quote: '顔は上げた', past_quotes: rows.map(row => ({ date: row.date, quote: 'パスを守備に取られた' })) } }) } }] }));
     },
   });
   const invoke = (action = 'generate') => handler!(new Request('https://example.invalid', { method: 'POST', headers: { Authorization: 'Bearer jwt' }, body: JSON.stringify({ date: '2026-10-07', action, user_id: 'outsider' }) }));
