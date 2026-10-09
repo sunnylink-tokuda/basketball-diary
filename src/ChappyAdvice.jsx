@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { supabase } from './supabase.js';
+import { growthExplanation } from './growthExplanation.js';
 
 export default function ChappyAdvice({ date, record }) {
   const [session, setSession] = useState(null);
@@ -106,6 +107,12 @@ export default function ChappyAdvice({ date, record }) {
           <strong style={{ fontSize: 13 }}>{label}</strong><p style={{ margin: '4px 0', fontSize: 14, whiteSpace: 'pre-wrap' }}>{advice.growth[key]}</p>
         </div>)}
         <p style={{ fontSize: 11 }}>参考にした記録：{advice.growth.evidence_dates.join('、')}</p>
+      </section>}
+      {advice && !advice.growth && <section aria-label="成長チェックを表示しない理由" style={{ borderTop: '1px solid #d1c7f0', paddingTop: 10 }}>
+        <strong style={{ fontSize: 13 }}>保護者の方へ：今回の成長チェックについて</strong>
+        <p style={{ fontSize: 13 }}>{growthExplanation(advice.growth_status)}</p>
+        {advice.growth_status && <p style={{ fontSize: 11 }}>生成時に取得した過去の日記：{advice.growth_status.history_count}件 ／ 同じ技術の比較候補：{advice.growth_status.comparable_count}件</p>}
+        <p style={{ fontSize: 12 }}>表示がないことは、成長していないという意味ではありません。記録から確認できることだけをお伝えします。</p>
       </section>}
       {!record && <p>日記を保存すると、アドバイスが届くよ。</p>}
       {!busy && status && <button onClick={() => setRetry(n => n + 1)}>もう一度ためす</button>}

@@ -121,7 +121,9 @@ test('new SQL isolates ownership, preserves old data/advice, bounds history and 
     await db.exec("update records set data='{" + '"changed":true' + "}' where date='2026-10-08'");
     assert.equal(await rpc('chappy_growth_finish', [owner, '2026-10-08', request, { ...base, growth: null }]), false);
     await db.exec("update records set data='{}' where date='2026-10-08'");
-    assert.equal(await rpc('chappy_growth_finish', [owner, '2026-10-08', request, { ...base, growth: null }]), true);
+    const withReason = { ...base, growth: null, growth_status: { code: 'model_declined', history_count: 20, comparable_count: 5 } };
+    assert.equal(await rpc('chappy_growth_finish', [owner, '2026-10-08', request, withReason]), true);
+    assert.deepEqual(await rpc('chappy_growth_saved', [owner, '2026-10-08']), withReason);
     await assert.rejects(db.query("update chappy_growth_advice set advice=null"), /immutable/);
     await assert.rejects(db.query("delete from chappy_growth_advice"), /immutable/);
     await db.query("select set_config('request.jwt.claim.sub',$1,false)", [other]);

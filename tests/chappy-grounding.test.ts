@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { growthContext, validateGeneratedAdvice, recordedGood } from '../supabase/functions/chappy-advice/advice.ts';
+import { growthContext, validateGeneratedAdvice, assessGeneratedAdvice, validateStoredAdvice, normalizeQuotation, recordedGood } from '../supabase/functions/chappy-advice/advice.ts';
 
 const reflection = (memo: string) => ({ daySummary: { memo } });
 const rows = [
@@ -48,13 +48,12 @@ test('invented play, past-day success and missing current quotation fall back to
   assert.equal(validateGeneratedAdvice(value, context).good, recordedGood);
 });
 
-test('matching dates alone, invented quotes, previous advice and unused quotes do not establish growth', () => {
+test('matching dates alone, invented quotes, previous advice do not establish growth', () => {
   for (const mutate of [
     (v: ReturnType<typeof generated>) => { v.grounding.past_quotes[0].quote = 'パスが成功した'; },
     (v: ReturnType<typeof generated>) => { v.grounding.past_quotes[0].quote = '顔を上げよう'; },
     (v: ReturnType<typeof generated>) => { v.grounding.past_quotes[1].date = '2026-10-01'; },
     (v: ReturnType<typeof generated>) => { v.grounding.past_quotes = []; },
-    (v: ReturnType<typeof generated>) => { v.growth.improved = '前より上手になったね。'; },
   ]) {
     const value = generated();
     mutate(value);
@@ -82,4 +81,45 @@ test('unchanged challenge can explicitly acknowledge that improvement is not con
   value.good = '「パスを守備に取られた」と振り返れたね。次の練習を考えよう。';
   value.growth.improved = '10/1は「パスを守備に取られた」、10/4は「パス前に守備を見られなかった」。改善はまだ記録から確認できないよ。';
   assert.match(validateGeneratedAdvice(value, unchanged).growth!.improved, /改善はまだ記録から確認できない/);
+});
+
+test('good quotation failure does not suppress independently grounded growth; display prose can paraphrase', () => {
+  const value = { ...generated(), good: '架空のシュートが成功したね。', grounding: { ...generated().grounding, current_quote: null, growth_current_quote: '守備を見て、仲間に届けた' } };
+  value.growth.improved = '10/1と10/4は守備への注意が課題だったね。今日は守備を見てパスを届けられたと記録しているね。';
+  const result = assessGeneratedAdvice(value, context);
+  assert.equal(result.advice.good, recordedGood);
+  assert.deepEqual(result.advice.growth, value.growth);
+  assert.equal(result.growth_status.code, 'available');
+});
+
+test('spacing, full-width forms and punctuation are tolerated, changed words/negation/numbers are not', () => {
+  const value = generated();
+  value.grounding.current_quote = '守備を見て 仲間に届けた。';
+  value.grounding.past_quotes[0].quote = 'パスを 守備に取られた。';
+  value.grounding.past_quotes[1].quote = 'パス前に守備を見られなかった。';
+  assert.equal(assessGeneratedAdvice(value, context).growth_status.code, 'available');
+  assert.equal(normalizeQuotation('１回、パス！'), normalizeQuotation('1回パス'));
+  assert.notEqual(normalizeQuotation('2.5秒'), normalizeQuotation('25秒'));
+  for (const fabricated of ['パス前に守備を見られた', 'パスが成功した', 'パスを守備に2回取られた']) {
+    value.grounding.past_quotes[0].quote = fabricated;
+    assert.equal(assessGeneratedAdvice(value, context).growth_status.code, 'past_evidence_unverified');
+  }
+});
+
+test('specific absence reasons and generation-time counts are persisted only on new advice', () => {
+  const none = growthContext('2026-10-07', reflection('パス練習'), []);
+  const nullGrowth = { ...generated(), growth: null };
+  assert.deepEqual(assessGeneratedAdvice(nullGrowth, none).growth_status, { code: 'no_history', history_count: 0, comparable_count: 0 });
+  const one = growthContext('2026-10-07', reflection('パス練習'), rows.slice(0, 1));
+  assert.equal(assessGeneratedAdvice(nullGrowth, one).growth_status.code, 'insufficient_comparison');
+  assert.equal(assessGeneratedAdvice(nullGrowth, context).growth_status.code, 'model_declined');
+  const invalidCurrent = { ...generated(), grounding: { ...generated().grounding, growth_current_quote: 'ドライブを成功させた' } };
+  assert.equal(assessGeneratedAdvice(invalidCurrent, context).growth_status.code, 'current_evidence_unverified');
+  const assessed = assessGeneratedAdvice(nullGrowth, context);
+  const stored = { ...assessed.advice, growth_status: assessed.growth_status };
+  assert.deepEqual(validateStoredAdvice(stored), stored);
+  const legacy = { ...generated().growth };
+  const old = { good: '以前の助言', focus: '見る', mission: '一度見る', growth: legacy };
+  assert.deepEqual(validateStoredAdvice(old), old);
+  assert.equal('growth_status' in validateStoredAdvice(old), false);
 });

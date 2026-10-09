@@ -5,6 +5,7 @@ import { createRequire } from 'node:module';
 import { runInNewContext } from 'node:vm';
 import { transformSync } from 'esbuild';
 import React from 'react';
+import { growthExplanation } from '../src/growthExplanation.js';
 import TestRenderer, { act } from 'react-test-renderer';
 
 const require = createRequire(import.meta.url);
@@ -35,7 +36,7 @@ function fixture(restored: unknown = null, advice: unknown = { good: '工夫し�
   };
   const module = { exports: {} as { default: React.ComponentType<any> } };
   const code = transformSync(readFileSync('src/ChappyAdvice.jsx', 'utf8'), { loader: 'jsx', format: 'cjs', jsx: 'automatic' }).code;
-  runInNewContext(code, { module, exports: module.exports, require: (name: string) => name === './supabase.js' ? { supabase } : require(name) });
+  runInNewContext(code, { module, exports: module.exports, require: (name: string) => name === './supabase.js' ? { supabase } : name === './growthExplanation.js' ? { growthExplanation } : require(name) });
   return { Component: module.exports.default, fail: () => { failLogin = true; }, succeed: () => { failLogin = false; }, counts: () => ({ loginCalls, generationCalls, passwordUpdates }) };
 }
 
@@ -100,6 +101,21 @@ test('optional growth section shows evidence; legacy and insufficient-history ad
       assert.match(text, /2026-10-01/);
       assert.match(text, /2026-10-04/);
     } else assert.doesNotMatch(text, /チャッピーの成長チェック/);
+    await act(async () => tree!.unmount());
+  }
+});
+
+test('parents see persisted reason and counts; old missing reasons are never inferred', async () => {
+  for (const status of [undefined, { code: 'past_evidence_unverified', history_count: 20, comparable_count: 5 }]) {
+    const f = fixture(session, { good: '記録したね', focus: '周りを見よう', mission: '一度見よう', growth: null, ...(status ? { growth_status: status } : {}) });
+    let tree: TestRenderer.ReactTestRenderer;
+    await act(async () => { tree = TestRenderer.create(React.createElement(f.Component, { date: '2026-10-09', record: { teams: [] } })); });
+    const text = JSON.stringify(tree!.toJSON());
+    assert.match(text, /保護者の方へ/);
+    assert.match(text, /成長していないという意味ではありません/);
+    assert.match(text, status ? /過去の日記の引用を確認できなかった/ : /生成時の理由が記録されていません/);
+    if (status) { assert.match(text, /20/); assert.match(text, /5/); }
+    assert.equal(f.counts().generationCalls, 1);
     await act(async () => tree!.unmount());
   }
 });

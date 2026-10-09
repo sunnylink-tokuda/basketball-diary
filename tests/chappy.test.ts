@@ -100,7 +100,7 @@ test('Edge Function generates from saved data, persists, caches, and handles sta
       if (name === 'chappy_growth_history') return { data: [], error: null };
       if (name === 'chappy_growth_saved') return { data: cached, error: null };
       if (name === 'chappy_growth_claim') { assert.deepEqual(args.p_source, record); return { data: 'claimed', error: null }; }
-      if (name === 'chappy_growth_finish') { finishes++; assert.deepEqual(JSON.parse(JSON.stringify(args.p_advice)), output); return { data: saved, error: null }; }
+      if (name === 'chappy_growth_finish') { finishes++; assert.deepEqual(JSON.parse(JSON.stringify(Object.fromEntries(Object.entries(args.p_advice as object).filter(([key]) => key !== 'growth_status')))), output); return { data: saved, error: null }; }
       throw Error('Unexpected RPC');
     },
   };
@@ -122,7 +122,7 @@ test('Edge Function generates from saved data, persists, caches, and handles sta
   const invoke = () => handler!(new Request('https://example.invalid', { method: 'POST', headers: { Authorization: 'Bearer jwt' }, body: JSON.stringify({ date: '2026-10-07', action: 'generate', data: 'untrusted unsaved text' }) }));
   const generated = await invoke();
   assert.equal(generated.status, 200);
-  assert.deepEqual(await generated.json(), { status: 'ready', advice: output });
+  assert.deepEqual(await generated.json(), { status: 'ready', advice: { ...(output as object), growth_status: { code: 'no_history', history_count: 0, comparable_count: 0 } } });
   assert.equal(finishes, 1);
   cached = output;
   assert.equal((await invoke()).status, 200);
@@ -158,7 +158,7 @@ test('Edge Function scopes historical reads to authenticated owner and preserves
       if (name === 'chappy_growth_saved') return { data: cache, error: null };
       if (name === 'chappy_growth_history') { historyReads++; return { data: rows, error: null }; }
       if (name === 'chappy_growth_claim') return { data: 'claimed', error: null };
-      if (name === 'chappy_growth_finish') { assert.deepEqual(JSON.parse(JSON.stringify(args.p_advice)), output); return { data: true, error: null }; }
+      if (name === 'chappy_growth_finish') { assert.deepEqual(JSON.parse(JSON.stringify(Object.fromEntries(Object.entries(args.p_advice as object).filter(([key]) => key !== 'growth_status')))), output); return { data: true, error: null }; }
       throw Error('Unexpected RPC');
     },
   };

@@ -1,5 +1,5 @@
 import { createClient } from 'npm:@supabase/supabase-js@2.117.2';
-import { validDate, validateStoredAdvice, validateGeneratedAdvice, growthContext, guardPrompt, generationSchema } from './advice.ts';
+import { validDate, validateStoredAdvice, assessGeneratedAdvice, growthContext, guardPrompt, generationSchema } from './advice.ts';
 
 const cors = {
   'Access-Control-Allow-Origin': '*',
@@ -75,7 +75,8 @@ Deno.serve(async req => {
     const completion = await response.json();
     const message = completion.choices?.[0]?.message;
     if (message?.refusal || completion.choices?.[0]?.finish_reason !== 'stop') throw new Error('Incomplete advice');
-    const advice = validateGeneratedAdvice(JSON.parse(message.content), context);
+    const assessment = assessGeneratedAdvice(JSON.parse(message.content), context);
+    const advice = { ...assessment.advice, growth_status: assessment.growth_status };
     const { data: saved, error: saveError } = await db.rpc('chappy_growth_finish', { p_user: user.id, p_date: date, p_request: requestId, p_advice: advice });
     if (saveError) throw new Error('Advice save failed');
     if (!saved) return reply(409, { status: 'changed' });
