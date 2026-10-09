@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { supabase } from './supabase.js';
 import { growthExplanation } from './growthExplanation.js';
 
@@ -15,6 +15,8 @@ export default function ChappyAdvice({ date, record }) {
   const [status, setStatus] = useState('');
   const [busy, setBusy] = useState(false);
   const [retry, setRetry] = useState(0);
+  const [regenerated, setRegenerated] = useState(false);
+  const requestEpoch = useRef(0);
   useEffect(() => {
     let active = true;
     let authEventObserved = false;
@@ -35,6 +37,8 @@ export default function ChappyAdvice({ date, record }) {
   }, []);
   useEffect(() => {
     let active = true;
+    requestEpoch.current++;
+    setRegenerated(false);
     setAdvice(null);
     setStatus('');
     setBusy(false);
@@ -46,13 +50,27 @@ export default function ChappyAdvice({ date, record }) {
       .then(({ data, error }) => {
         if (!active) return;
         if (error) throw error;
-        if (data.status === 'ready') { setAdvice(data.advice); setStatus(''); }
+        if (data.status === 'ready') { setAdvice(data.advice); setRegenerated(data.regenerated === true); setStatus(''); }
         else setStatus('生成中です。少し待ってから、もう一度ためしてね。');
       })
       .catch(() => { if (active) setStatus('アドバイスを取得できませんでした。日記は保存されています。保護者に設定を確認してもらうか、もう一度ためしてね。'); })
       .finally(() => { if (active) setBusy(false); });
     return () => { active = false; };
   }, [date, record, session?.user?.id, retry]);
+  async function regenerateOct09() {
+    if (busy || !session || !advice || regenerated || date !== '2026-10-09') return;
+    const epoch = requestEpoch.current;
+    setBusy(true);
+    setStatus('10月9日のアドバイスを再生成しています。成功するまで以前の回答を表示します。');
+    try {
+      const { data, error } = await supabase.functions.invoke('chappy-advice', { body: { date, action: 'regenerate_oct09' } });
+      if (epoch !== requestEpoch.current) return;
+      if (error || data?.status !== 'ready' || !data?.regenerated) throw new Error('Revision failed');
+      setAdvice(data.advice); setRegenerated(true); setStatus('');
+    } catch {
+      if (epoch === requestEpoch.current) setStatus('再生成できませんでした。以前のアドバイスはそのまま残っています。少し待ってから再生成ボタンでためしてください。');
+    } finally { if (epoch === requestEpoch.current) setBusy(false); }
+  }
   async function signIn(event) {
     event.preventDefault();
     if (authBusy) return;
@@ -114,6 +132,11 @@ export default function ChappyAdvice({ date, record }) {
         {advice.growth_status && <p style={{ fontSize: 11 }}>生成時に取得した過去の日記：{advice.growth_status.history_count}件 ／ 同じ技術の比較候補：{advice.growth_status.comparable_count}件</p>}
         <p style={{ fontSize: 12 }}>表示がないことは、成長していないという意味ではありません。記録から確認できることだけをお伝えします。</p>
       </section>}
+      {date === '2026-10-09' && advice && !regenerated && <div style={{ margin: '12px 0' }}>
+        <p style={{ fontSize: 12 }}>保護者の方へ：10月9日だけ、最新の方法で1回再生成できます。以前の回答を残し、成功したときだけ表示を切り替えます。</p>
+        <button disabled={busy} onClick={regenerateOct09}>10月9日のアドバイスを再生成</button>
+      </div>}
+      {regenerated && <p style={{ fontSize: 12 }}>再生成したアドバイスを表示しています。以前の回答も保存されています。</p>}
       {!record && <p>日記を保存すると、アドバイスが届くよ。</p>}
       {!busy && status && <button onClick={() => setRetry(n => n + 1)}>もう一度ためす</button>}
       <button disabled={authBusy} onClick={signOut} style={{ marginLeft: 8 }}>ログアウト</button>

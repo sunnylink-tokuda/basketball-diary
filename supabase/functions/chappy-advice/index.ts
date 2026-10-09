@@ -22,6 +22,7 @@ Deno.serve(async req => {
   let date: string | undefined;
   let requestId: string | undefined;
   let userId: string | undefined;
+  let regenerating = false;
   try {
     const { data: { user }, error: authError } = await db.auth.getUser(authorization.slice(7));
     if (authError || !user) return reply(401, { error: 'Sign in required' });
@@ -32,28 +33,41 @@ Deno.serve(async req => {
     if (raw.length > 1024) return reply(413, { error: 'Request too large' });
     let body;
     try { body = JSON.parse(raw); } catch { return reply(400, { error: 'Invalid JSON' }); }
-    if (!validDate(body?.date) || !['generate', 'read'].includes(body?.action)) return reply(400, { error: 'Invalid request' });
+    if (!validDate(body?.date) || !['generate', 'read', 'regenerate_oct09'].includes(body?.action)) return reply(400, { error: 'Invalid request' });
     date = body.date;
+    regenerating = body.action === 'regenerate_oct09';
+    if (regenerating && date !== '2026-10-09') return reply(400, { error: 'Regeneration is limited to 2026-10-09' });
+    const savedAdvice = async () => {
+      if (date === '2026-10-09') {
+        const { data, error } = await db.rpc('chappy_oct09_saved', { p_user: user.id, p_date: date });
+        if (error) throw new Error('Revision read failed');
+        return { advice: data?.advice ?? null, regenerated: data?.regenerated === true };
+      }
+      const { data, error } = await db.rpc('chappy_growth_saved', { p_user: user.id, p_date: date });
+      if (error) throw new Error('Advice read failed');
+      return { advice: data, regenerated: false };
+    };
+    const ready = (cached: { advice: unknown; regenerated: boolean }) => reply(200, { status: 'ready', advice: validateStoredAdvice(cached.advice), ...(date === '2026-10-09' ? { regenerated: cached.regenerated } : {}) });
     const { data: source, error: recordError } = await db.rpc('chappy_growth_record', { p_user: user.id, p_date: date });
     const record = source ? { data: source } : null;
     if (recordError) throw new Error('Record read failed');
     if (!record) return reply(404, { error: 'Diary missing or ownership not registered' });
     // Saved advice is preserved, including legacy three-field advice.
-    const { data: current, error: currentError } = await db.rpc('chappy_growth_saved', { p_user: user.id, p_date: date });
-    if (currentError) throw new Error('Advice read failed');
-    if (current) return reply(200, { status: 'ready', advice: validateStoredAdvice(current) });
+    const current = await savedAdvice();
+    if (current.advice && (!regenerating || current.regenerated)) return ready(current);
+    if (regenerating && !current.advice) return reply(409, { error: 'Original advice missing' });
     if (body.action === 'read') return reply(200, { status: 'missing' });
     const { data: history, error: historyError } = await db.rpc('chappy_growth_history', { p_user: user.id, p_date: date });
     if (historyError) throw new Error('History read failed');
     const context = growthContext(date, record.data, history ?? []);
     const input = JSON.stringify(context);
     requestId = crypto.randomUUID();
-    const { data: claim, error: claimError } = await db.rpc('chappy_growth_claim', { p_date: date, p_source: record.data, p_request: requestId, p_user: user.id });
+    const { data: claim, error: claimError } = await db.rpc(regenerating ? 'chappy_oct09_claim' : 'chappy_growth_claim', { p_date: date, p_source: record.data, p_request: requestId, p_user: user.id });
     if (claimError) throw new Error('Claim failed');
     if (claim === 'ready') {
-      const { data: cached, error } = await db.rpc('chappy_growth_saved', { p_user: user.id, p_date: date });
-      if (error || !cached) return reply(409, { status: 'changed' });
-      return reply(200, { status: 'ready', advice: validateStoredAdvice(cached) });
+      const cached = await savedAdvice();
+      if (!cached.advice) return reply(409, { status: 'changed' });
+      return ready(cached);
     }
     if (claim !== 'claimed') return reply(claim === 'limited' ? 429 : 409, { status: claim });
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -77,14 +91,14 @@ Deno.serve(async req => {
     if (message?.refusal || completion.choices?.[0]?.finish_reason !== 'stop') throw new Error('Incomplete advice');
     const assessment = assessGeneratedAdvice(JSON.parse(message.content), context);
     const advice = { ...assessment.advice, growth_status: assessment.growth_status };
-    const { data: saved, error: saveError } = await db.rpc('chappy_growth_finish', { p_user: user.id, p_date: date, p_request: requestId, p_advice: advice });
+    const { data: saved, error: saveError } = await db.rpc(regenerating ? 'chappy_oct09_finish' : 'chappy_growth_finish', { p_user: user.id, p_date: date, p_request: requestId, p_advice: advice });
     if (saveError) throw new Error('Advice save failed');
     if (!saved) return reply(409, { status: 'changed' });
-    return reply(200, { status: 'ready', advice });
+    return reply(200, { status: 'ready', advice, ...(date === '2026-10-09' ? { regenerated: regenerating } : {}) });
   } catch {
     // Do not log/return diary text, provider response bodies, tokens or secrets.
     try {
-      if (date && requestId && userId) await db.from('chappy_growth_advice').update({ request_id: null }).eq('user_id', userId).eq('date', date).eq('request_id', requestId).is('advice', null);
+      if (date && requestId && userId) await db.from(regenerating ? 'chappy_oct09_revision' : 'chappy_growth_advice').update({ request_id: null }).eq('user_id', userId).eq('date', date).eq('request_id', requestId).is('advice', null);
     } catch { /* Cleanup failure must not expose provider or database errors. */ }
     return reply(502, { error: 'Advice unavailable; diary remains saved' });
   }
