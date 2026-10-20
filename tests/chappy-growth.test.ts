@@ -11,11 +11,11 @@ const prior = [
   { date: '2026-10-04', data: diary('パスする前に顔を上げたが、守備を見られなかった'), advice: base },
 ];
 
-test('no history or insufficient comparable records uses current diary only', () => {
+test('insufficient comparisons suppress growth while retaining history for follow-up', () => {
   for (const rows of [[], prior.slice(0, 1), prior.map(row => ({ ...row, data: diary('シュートを練習した') }))]) {
     const context = growthContext('2026-10-07', diary('パスを練習した'), rows);
     assert.equal(context.growth_allowed, false);
-    assert.deepEqual(context.history, []);
+    assert.equal(context.history.length, rows.length);
     assert.deepEqual(context.evidence_dates, []);
     assert.deepEqual(validateGrowthAdvice({ ...base, growth: null }, context.evidence_dates), { ...base, growth: null });
   }

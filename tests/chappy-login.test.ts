@@ -160,3 +160,17 @@ test('a late October 9 regeneration response cannot replace another date on scre
   assert.doesNotMatch(JSON.stringify(tree!.toJSON()), /新しい回答/);
   await act(async () => tree!.unmount());
 });
+
+test('new coaching displays follow-up questions and separates confirmed growth, ongoing tasks and new challenges', async () => {
+  const f = fixture(session, {
+    good: '声を出したと振り返れたね', focus: '次も知らせよう', mission: '次の守備でスクリーンを1回知らせよう',
+    follow_up: [{ date: '2026-10-19', status: 'unknown', comment: '前のミッションは試せたかな？ 次の日記で教えてね。' }],
+    growth: { improved: '声を出した記録があるね', ongoing: '知らせるタイミングを続けよう', new_challenge: '次の提案：方向も知らせよう', next: '近づいたらすぐ知らせよう', evidence_dates: ['2026-10-18', '2026-10-19'] },
+  });
+  let tree: TestRenderer.ReactTestRenderer;
+  await act(async () => { tree = TestRenderer.create(React.createElement(f.Component, { date: '2026-10-20', record: { teams: [] } })); });
+  const text = JSON.stringify(tree!.toJSON());
+  for (const phrase of ['前のアドバイスを振り返ろう', '2026-10-19', 'まだ確認できないこと', '試せたかな', '答えは次の日記に書いてね', '成長が確認できたこと', '継続中の課題', '新しい挑戦', '次の提案：方向も知らせよう']) assert.ok(text.includes(phrase));
+  assert.equal(f.counts().generationCalls, 1);
+  await act(async () => tree!.unmount());
+});

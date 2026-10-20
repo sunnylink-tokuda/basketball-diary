@@ -100,7 +100,7 @@ test('Edge Function generates from saved data, persists, caches, and handles sta
       if (name === 'chappy_growth_history') return { data: [], error: null };
       if (name === 'chappy_growth_saved') return { data: cached, error: null };
       if (name === 'chappy_growth_claim') { assert.deepEqual(args.p_source, record); return { data: 'claimed', error: null }; }
-      if (name === 'chappy_growth_finish') { finishes++; assert.deepEqual(JSON.parse(JSON.stringify(Object.fromEntries(Object.entries(args.p_advice as object).filter(([key]) => key !== 'growth_status')))), output); return { data: saved, error: null }; }
+      if (name === 'chappy_growth_finish') { finishes++; assert.deepEqual(JSON.parse(JSON.stringify(Object.fromEntries(Object.entries(args.p_advice as object).filter(([key]) => !['growth_status', 'follow_up'].includes(key))))), output); return { data: saved, error: null }; }
       throw Error('Unexpected RPC');
     },
   };
@@ -158,7 +158,7 @@ test('Edge Function scopes historical reads to authenticated owner and preserves
       if (name === 'chappy_growth_saved') return { data: cache, error: null };
       if (name === 'chappy_growth_history') { historyReads++; return { data: rows, error: null }; }
       if (name === 'chappy_growth_claim') return { data: 'claimed', error: null };
-      if (name === 'chappy_growth_finish') { assert.deepEqual(JSON.parse(JSON.stringify(Object.fromEntries(Object.entries(args.p_advice as object).filter(([key]) => key !== 'growth_status')))), output); return { data: true, error: null }; }
+      if (name === 'chappy_growth_finish') { assert.deepEqual(JSON.parse(JSON.stringify(Object.fromEntries(Object.entries(args.p_advice as object).filter(([key]) => !['growth_status', 'follow_up'].includes(key))))), output); return { data: true, error: null }; }
       throw Error('Unexpected RPC');
     },
   };
@@ -171,10 +171,10 @@ test('Edge Function scopes historical reads to authenticated owner and preserves
       calls++;
       const payload = JSON.parse(options.body);
       const input = JSON.parse(payload.messages[1].content);
-      assert.equal(payload.max_completion_tokens, 1100);
+      assert.equal(payload.max_completion_tokens, 1800);
       assert.doesNotMatch(JSON.stringify(input), /private/);
       assert.equal(input.growth_allowed, rows.length >= 2);
-      assert.deepEqual(input.history.map((row: { date: string }) => row.date), rows.length >= 2 ? dates : []);
+      assert.deepEqual(input.history.map((row: { date: string }) => row.date), rows.map(row => row.date));
       assert.match(payload.messages[0].content, /小学5年生の男子ガード/);
       assert.match(payload.messages[0].content, /目線、足の運び/);
       return new Response(JSON.stringify({ choices: [{ finish_reason: 'stop', message: { content: JSON.stringify({ ...(output as object), grounding: { current_quote: '顔は上げた', past_quotes: rows.map(row => ({ date: row.date, quote: 'パスを守備に取られた' })) } }) } }] }));
@@ -199,4 +199,61 @@ test('Edge Function scopes historical reads to authenticated owner and preserves
   assert.equal((await invoke()).status, 502);
   output = { ...base, growth: null };
   assert.equal((await invoke()).status, 200);
+});
+
+test('Edge Function persists new follow-up/growth shape and returns cached new or legacy answers without API calls', async () => {
+  let handler: (req: Request) => Promise<Response>;
+  const userId = 'allowed-user';
+  let calls = 0;
+  let cached: unknown = null;
+  const prior = { good: '記録したね', focus: '守備の声を出そう', mission: 'スクリーンを見たら声で知らせよう' };
+  const dates = ['2026-10-18', '2026-10-19'];
+  const rows = dates.map(date => ({ date, data: { daySummary: { memo: '声を出せなかった' } }, advice: prior }));
+  rows.unshift({ date: '2026-10-09', data: { daySummary: { memo: '声を出せなかった' } }, advice: prior });
+  const quote = '右にいるよと仲間へ声を出した';
+  const growth = { improved: '10/18と10/19は声が課題。今日は仲間に声を出したと書いているね。', ongoing: '知らせるタイミングを続けよう', new_challenge: '次の提案：方向も知らせよう', next: '近づいたらすぐ知らせよう', evidence_dates: dates };
+  const output = { good: `「${quote}」と振り返れたね。`, focus: '次も守備で知らせよう', mission: '次の3対3でスクリーンを見たら声で1回知らせよう', growth,
+    follow_up: dates.map(date => ({ date, status: 'practiced', comment: `「${quote}」と書いたね。知らせる行動を試したね。` })),
+    grounding: { current_quote: quote, growth_current_quote: quote, past_quotes: dates.map(date => ({ date, quote: '声を出せなかった' })), follow_up_quotes: dates.map(date => ({ date, quote })) },
+  };
+  const db = {
+    auth: { getUser: async () => ({ data: { user: { id: userId } }, error: null }) },
+    rpc: async (name: string, args: any) => {
+      assert.equal(args.p_user, userId);
+      if (name === 'chappy_oct09_saved') { assert.equal(args.p_date, '2026-10-09'); return { data: { advice: { ...prior, mission: '再生成版：声でスクリーンの方向を知らせよう' }, regenerated: true }, error: null }; }
+      if (name === 'chappy_growth_record') return { data: { daySummary: { memo: quote } }, error: null };
+      if (name === 'chappy_growth_saved') return { data: cached, error: null };
+      if (name === 'chappy_growth_history') return { data: rows, error: null };
+      if (name === 'chappy_growth_claim') return { data: 'claimed', error: null };
+      if (name === 'chappy_growth_finish') { cached = JSON.parse(JSON.stringify(args.p_advice)); return { data: true, error: null }; }
+      throw new Error('Unexpected RPC');
+    },
+  };
+  const code = transformSync(readFileSync('supabase/functions/chappy-advice/index.ts', 'utf8'), { loader: 'ts', format: 'cjs' }).code;
+  runInNewContext(code, {
+    exports: {}, Response, Request, AbortSignal, crypto,
+    Deno: { env: { get: (key: string) => ({ CHAPPY_ALLOWED_USER_IDS: userId, OPENAI_API_KEY: 'test-only-placeholder' })[key] }, serve: (fn: typeof handler) => { handler = fn; } },
+    require: (name: string) => name === './advice.ts' ? adviceModule : { createClient: () => db },
+    fetch: async (_url: string, options: { body: string }) => {
+      calls++;
+      const payload = JSON.parse(options.body);
+      assert.ok(payload.response_format.json_schema.schema.required.includes('follow_up'));
+      const context = JSON.parse(payload.messages[1].content);
+      assert.equal(context.follow_up_advice.length, 2);
+      assert.match(context.history[0].previous_advice.mission, /再生成版/);
+      return new Response(JSON.stringify({ choices: [{ finish_reason: 'stop', message: { content: JSON.stringify(output) } }] }));
+    },
+  });
+  const invoke = () => handler!(new Request('https://example.invalid', { method: 'POST', headers: { Authorization: 'Bearer jwt' }, body: JSON.stringify({ date: '2026-10-20', action: 'generate' }) }));
+  const response = await invoke();
+  assert.equal(response.status, 200);
+  const result = await response.json();
+  assert.equal(result.advice.follow_up[0].status, 'practiced');
+  assert.equal(result.advice.growth.new_challenge, growth.new_challenge);
+  assert.equal('grounding' in result.advice, false);
+  assert.deepEqual(await (await invoke()).json(), result);
+  assert.equal(calls, 1);
+  cached = prior;
+  assert.deepEqual((await (await invoke()).json()).advice, prior);
+  assert.equal(calls, 1);
 });

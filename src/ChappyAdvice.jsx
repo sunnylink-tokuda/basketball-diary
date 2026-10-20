@@ -119,9 +119,17 @@ export default function ChappyAdvice({ date, record }) {
       {advice && [['good', '今日よかったところ'], ['focus', '次に意識すること'], ['mission', '次回ミッション']].map(([key, label]) => <div key={key} style={{ marginBottom: 10 }}>
         <strong style={{ fontSize: 13 }}>{label}</strong><p style={{ margin: '4px 0', fontSize: 14, whiteSpace: 'pre-wrap' }}>{advice[key]}</p>
       </div>)}
+      {!!advice?.follow_up?.length && <section aria-label="前のアドバイスの振り返り" style={{ borderTop: '1px solid #d1c7f0', paddingTop: 10 }}>
+        <h4 style={{ margin: '0 0 10px', fontSize: 15 }}>前のアドバイスを振り返ろう</h4>
+        {advice.follow_up.map(review => <div key={review.date} style={{ marginBottom: 10 }}>
+          <strong style={{ fontSize: 13 }}>{review.date}：{({ practiced: '実践の記録あり', ongoing: '継続中の課題', unknown: 'まだ確認できないこと' })[review.status]}</strong>
+          <p style={{ margin: '4px 0', fontSize: 14, whiteSpace: 'pre-wrap' }}>{review.comment}</p>
+        </div>)}
+        <p style={{ fontSize: 12 }}>答えは次の日記に書いてね。書かれていないことは、できなかったとは決めつけないよ。</p>
+      </section>}
       {advice?.growth && <section aria-label="チャッピーの成長チェック" style={{ borderTop: '1px solid #d1c7f0', paddingTop: 10 }}>
         <h4 style={{ margin: '0 0 10px', fontSize: 15 }}>チャッピーの成長チェック</h4>
-        {[['improved', '以前と比べて成長した点'], ['ongoing', '継続して取り組んでいる課題'], ['next', '次の成長につながるポイント']].map(([key, label]) => <div key={key} style={{ marginBottom: 10 }}>
+        {[['improved', advice.growth.new_challenge ? '成長が確認できたこと' : '以前と比べて成長した点'], ['ongoing', '継続中の課題'], ...(advice.growth.new_challenge ? [['new_challenge', '新しい挑戦']] : []), ['next', '次の成長につながるポイント']].map(([key, label]) => <div key={key} style={{ marginBottom: 10 }}>
           <strong style={{ fontSize: 13 }}>{label}</strong><p style={{ margin: '4px 0', fontSize: 14, whiteSpace: 'pre-wrap' }}>{advice.growth[key]}</p>
         </div>)}
         <p style={{ fontSize: 11 }}>参考にした記録：{advice.growth.evidence_dates.join('、')}</p>
@@ -129,7 +137,7 @@ export default function ChappyAdvice({ date, record }) {
       {advice && !advice.growth && <section aria-label="成長チェックを表示しない理由" style={{ borderTop: '1px solid #d1c7f0', paddingTop: 10 }}>
         <strong style={{ fontSize: 13 }}>保護者の方へ：今回の成長チェックについて</strong>
         <p style={{ fontSize: 13 }}>{growthExplanation(advice.growth_status)}</p>
-        {advice.growth_status && <p style={{ fontSize: 11 }}>生成時に取得した過去の日記：{advice.growth_status.history_count}件 ／ 同じ技術の比較候補：{advice.growth_status.comparable_count}件</p>}
+        {advice.growth_status && <p style={{ fontSize: 11 }}>生成時に取得した過去の日記：{advice.growth_status.history_count}件 ／ 関連する行動の比較候補：{advice.growth_status.comparable_count}件</p>}
         <p style={{ fontSize: 12 }}>表示がないことは、成長していないという意味ではありません。記録から確認できることだけをお伝えします。</p>
       </section>}
       {date === '2026-10-09' && advice && !regenerated && <div style={{ margin: '12px 0' }}>
