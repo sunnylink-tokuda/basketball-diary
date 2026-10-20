@@ -59,6 +59,14 @@ Deno.serve(async req => {
     if (body.action === 'read') return reply(200, { status: 'missing' });
     const { data: history, error: historyError } = await db.rpc('chappy_growth_history', { p_user: user.id, p_date: date });
     if (historyError) throw new Error('History read failed');
+    // Use the successful revision for the one date that supports versioning.
+    // The owner-scoped RPC is read-only; never replace old advice in the database.
+    const revisionDay = history?.find((row: { date: string; advice?: unknown }) => row.date === '2026-10-09');
+    if (revisionDay) {
+      const { data: revision, error: revisionError } = await db.rpc('chappy_oct09_saved', { p_user: user.id, p_date: '2026-10-09' });
+      if (revisionError) throw new Error('History revision read failed');
+      if (revision?.advice) revisionDay.advice = revision.advice;
+    }
     const context = growthContext(date, record.data, history ?? []);
     const input = JSON.stringify(context);
     requestId = crypto.randomUUID();
@@ -74,7 +82,7 @@ Deno.serve(async req => {
       method: 'POST', signal: AbortSignal.timeout(25000),
       headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: Deno.env.get('OPENAI_MODEL') || 'gpt-4o-mini', store: false, max_completion_tokens: 1100,
+        model: Deno.env.get('OPENAI_MODEL') || 'gpt-4o-mini', store: false, max_completion_tokens: 1800,
         messages: [
           { role: 'system', content: guardPrompt },
           { role: 'user', content: input },
