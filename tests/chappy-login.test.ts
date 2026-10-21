@@ -6,6 +6,7 @@ import { runInNewContext } from 'node:vm';
 import { transformSync } from 'esbuild';
 import React from 'react';
 import { growthExplanation } from '../src/growthExplanation.js';
+import { adviceFailure } from '../src/adviceFailure.js';
 import TestRenderer, { act } from 'react-test-renderer';
 
 const require = createRequire(import.meta.url);
@@ -14,6 +15,7 @@ const session = { user: { id: 'allowed-user' }, access_token: 'test-session' };
 function fixture(restored: unknown = null, advice: unknown = { good: '工夫したね', focus: '周りを見よう', mission: 'パス前に顔を上げよう' }) {
   let callback: (event: string, session: unknown) => void;
   let failLogin = false;
+  let generationFailure: unknown = null;
   let loginCalls = 0;
   let generationCalls = 0;
   let passwordUpdates = 0;
@@ -38,12 +40,12 @@ function fixture(restored: unknown = null, advice: unknown = { good: '工夫し�
       signOut: async () => { callback('SIGNED_OUT', null); return { error: null }; },
       updateUser: async ({ password }: { password: string }) => { passwordUpdates++; assert.equal(password, 'new-test-password'); return { error: null }; },
     },
-    functions: { invoke: async (_name: string, options: any) => { generationCalls++; if (options.body.action === 'regenerate_oct09') { regenerationCalls++; if (holdRevision) await new Promise<void>(resolve => { releaseRevision = resolve; }); if (failRevision) return { data: null, error: new Error('Generation failed') }; latestAdvice = { good: '新しい回答', focus: '一つを見る', mission: '次に一度見る', growth: null }; regenerated = true; } return { data: { status: 'ready', advice: latestAdvice, regenerated }, error: null }; } },
+    functions: { invoke: async (_name: string, options: any) => { generationCalls++; if (generationFailure) return { data: null, error: generationFailure }; if (options.body.action === 'regenerate_oct09') { regenerationCalls++; if (holdRevision) await new Promise<void>(resolve => { releaseRevision = resolve; }); if (failRevision) return { data: null, error: new Error('Generation failed') }; latestAdvice = { good: '新しい回答', focus: '一つを見る', mission: '次に一度見る', growth: null }; regenerated = true; } return { data: { status: 'ready', advice: latestAdvice, regenerated }, error: null }; } },
   };
   const module = { exports: {} as { default: React.ComponentType<any> } };
   const code = transformSync(readFileSync('src/ChappyAdvice.jsx', 'utf8'), { loader: 'jsx', format: 'cjs', jsx: 'automatic' }).code;
-  runInNewContext(code, { module, exports: module.exports, require: (name: string) => name === './supabase.js' ? { supabase } : name === './growthExplanation.js' ? { growthExplanation } : require(name) });
-  return { Component: module.exports.default, holdRevision: () => { holdRevision = true; }, releaseRevision: () => releaseRevision?.(), failRevision: () => { failRevision = true; }, succeedRevision: () => { failRevision = false; }, fail: () => { failLogin = true; }, succeed: () => { failLogin = false; }, counts: () => ({ loginCalls, generationCalls, passwordUpdates, regenerationCalls }) };
+  runInNewContext(code, { module, exports: module.exports, setTimeout, clearTimeout, require: (name: string) => name === './supabase.js' ? { supabase } : name === './growthExplanation.js' ? { growthExplanation } : name === './adviceFailure.js' ? { adviceFailure } : require(name) });
+  return { Component: module.exports.default, generationFails: (error: unknown) => { generationFailure = error; }, holdRevision: () => { holdRevision = true; }, releaseRevision: () => releaseRevision?.(), failRevision: () => { failRevision = true; }, succeedRevision: () => { failRevision = false; }, fail: () => { failLogin = true; }, succeed: () => { failLogin = false; }, counts: () => ({ loginCalls, generationCalls, passwordUpdates, regenerationCalls }) };
 }
 
 test('password login failure, success, immediate advice and logout', async () => {
@@ -172,5 +174,22 @@ test('new coaching displays follow-up questions and separates confirmed growth, 
   const text = JSON.stringify(tree!.toJSON());
   for (const phrase of ['前のアドバイスを振り返ろう', '2026-10-19', 'まだ確認できないこと', '試せたかな', '答えは次の日記に書いてね', '成長が確認できたこと', '継続中の課題', '新しい挑戦', '次の提案：方向も知らせよう']) assert.ok(text.includes(phrase));
   assert.equal(f.counts().generationCalls, 1);
+  await act(async () => tree!.unmount());
+});
+
+test('generation wait shows a disabled retry countdown instead of a settings error', async () => {
+  const f = fixture(session);
+  f.generationFails({ context: new Response(JSON.stringify({ status: 'busy', retry_after: 1 }), { status: 409 }) });
+  let tree: TestRenderer.ReactTestRenderer;
+  await act(async () => { tree = TestRenderer.create(React.createElement(f.Component, { date: '2026-10-20', record: { teams: [] } })); });
+  const text = JSON.stringify(tree!.toJSON());
+  assert.match(text, /待ち時間/);
+  assert.doesNotMatch(text, /保護者に設定を確認/);
+  const retry = tree!.root.findAllByType('button').find(button => /秒後に再試行/.test(String(button.props.children)));
+  assert.ok(retry?.props.disabled);
+  await act(async () => retry!.props.onClick());
+  assert.equal(f.counts().generationCalls, 1);
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 1100)); });
+  assert.ok(tree!.root.findAllByType('button').some(button => button.props.children === 'もう一度ためす' && !button.props.disabled));
   await act(async () => tree!.unmount());
 });

@@ -87,6 +87,7 @@ test('Edge Function generates from saved data, persists, caches, and handles sta
   let cached: unknown = null;
   let saved = true;
   let providerOk = true;
+  let finishReason = 'stop';
   let output: unknown = { good: 'パスを工夫したね。', focus: '顔を上げよう。', mission: '次回、パス前に周りを見よう。', growth: null };
   const record = { teams: [{ good: 'パスを工夫した', teamName: 'private' }], parentComment: 'private' };
   const db = {
@@ -116,7 +117,7 @@ test('Edge Function generates from saved data, persists, caches, and handles sta
       assert.equal(payload.store, false);
       assert.equal(payload.messages[1].content.includes('private'), false);
       assert.equal(payload.messages[1].content.includes('パスを工夫した'), true);
-      return new Response(JSON.stringify({ choices: [{ finish_reason: 'stop', message: { content: JSON.stringify({ ...(output as object), grounding: { current_quote: 'パスを工夫した', past_quotes: [] } }) } }] }), { status: providerOk ? 200 : 500 });
+      return new Response(JSON.stringify({ choices: [{ finish_reason: finishReason, message: { content: JSON.stringify({ ...(output as object), grounding: { current_quote: 'パスを工夫した', past_quotes: [] } }) } }] }), { status: providerOk ? 200 : 500 });
     },
   });
   const invoke = () => handler!(new Request('https://example.invalid', { method: 'POST', headers: { Authorization: 'Bearer jwt' }, body: JSON.stringify({ date: '2026-10-07', action: 'generate', data: 'untrusted unsaved text' }) }));
@@ -132,9 +133,17 @@ test('Edge Function generates from saved data, persists, caches, and handles sta
   providerOk = false;
   const failed = await invoke();
   assert.equal(failed.status, 502);
-  assert.equal((await failed.text()).includes('test-only-placeholder'), false);
+  const failure = await failed.json();
+  assert.equal(JSON.stringify(failure).includes('test-only-placeholder'), false);
+  assert.equal(failure.code, 'provider');
+  assert.equal(failure.retry_after, 60);
   providerOk = true; output = { good: 'a', focus: 'b' };
   assert.equal((await invoke()).status, 502);
+  assert.equal(finishes, 2);
+  finishReason = 'length';
+  const truncated = await invoke();
+  assert.equal(truncated.status, 502);
+  assert.equal((await truncated.json()).code, 'output_limit');
   assert.equal(finishes, 2);
 });
 
@@ -158,7 +167,7 @@ test('Edge Function scopes historical reads to authenticated owner and preserves
       if (name === 'chappy_growth_saved') return { data: cache, error: null };
       if (name === 'chappy_growth_history') { historyReads++; return { data: rows, error: null }; }
       if (name === 'chappy_growth_claim') return { data: 'claimed', error: null };
-      if (name === 'chappy_growth_finish') { assert.deepEqual(JSON.parse(JSON.stringify(Object.fromEntries(Object.entries(args.p_advice as object).filter(([key]) => !['growth_status', 'follow_up'].includes(key))))), output); return { data: true, error: null }; }
+      if (name === 'chappy_growth_finish') { assert.deepEqual(JSON.parse(JSON.stringify(Object.fromEntries(Object.entries(args.p_advice as object).filter(([key]) => !['growth_status', 'follow_up'].includes(key))))), rows.length ? output : { ...(output as object), growth: null }); return { data: true, error: null }; }
       throw Error('Unexpected RPC');
     },
   };
@@ -171,7 +180,7 @@ test('Edge Function scopes historical reads to authenticated owner and preserves
       calls++;
       const payload = JSON.parse(options.body);
       const input = JSON.parse(payload.messages[1].content);
-      assert.equal(payload.max_completion_tokens, 1800);
+      assert.equal(payload.max_completion_tokens, 2800);
       assert.doesNotMatch(JSON.stringify(input), /private/);
       assert.equal(input.growth_allowed, rows.length >= 2);
       assert.deepEqual(input.history.map((row: { date: string }) => row.date), rows.map(row => row.date));
@@ -195,8 +204,8 @@ test('Edge Function scopes historical reads to authenticated owner and preserves
   assert.equal(historyReads, 1);
   owned = true;
   rows = [];
-  // Provider must not fabricate growth without comparable history.
-  assert.equal((await invoke()).status, 502);
+  // Unsupported optional growth is discarded, not saved or allowed to hide valid advice.
+  assert.equal((await invoke()).status, 200);
   output = { ...base, growth: null };
   assert.equal((await invoke()).status, 200);
 });
