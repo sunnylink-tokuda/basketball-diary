@@ -23,6 +23,7 @@ Deno.serve(async req => {
   let requestId: string | undefined;
   let userId: string | undefined;
   let regenerating = false;
+  let stage = 'record';
   try {
     const { data: { user }, error: authError } = await db.auth.getUser(authorization.slice(7));
     if (authError || !user) return reply(401, { error: 'Sign in required' });
@@ -77,12 +78,13 @@ Deno.serve(async req => {
       if (!cached.advice) return reply(409, { status: 'changed' });
       return ready(cached);
     }
-    if (claim !== 'claimed') return reply(claim === 'limited' ? 429 : 409, { status: claim });
+    if (claim !== 'claimed') return reply(claim === 'limited' ? 429 : 409, { status: claim, ...(claim === 'busy' ? { retry_after: 60 } : {}) });
+    stage = 'provider';
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST', signal: AbortSignal.timeout(25000),
       headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: Deno.env.get('OPENAI_MODEL') || 'gpt-4o-mini', store: false, max_completion_tokens: 1800,
+        model: Deno.env.get('OPENAI_MODEL') || 'gpt-4o-mini', store: false, max_completion_tokens: 2800,
         messages: [
           { role: 'system', content: guardPrompt },
           { role: 'user', content: input },
@@ -93,21 +95,25 @@ Deno.serve(async req => {
         } },
       }),
     });
-    if (!response.ok) throw new Error('Generation failed');
+    if (!response.ok) { stage = response.status === 429 ? 'provider_rate_limit' : 'provider'; throw new Error('Generation failed'); }
     const completion = await response.json();
     const message = completion.choices?.[0]?.message;
-    if (message?.refusal || completion.choices?.[0]?.finish_reason !== 'stop') throw new Error('Incomplete advice');
+    if (message?.refusal || completion.choices?.[0]?.finish_reason !== 'stop') { stage = completion.choices?.[0]?.finish_reason === 'length' ? 'output_limit' : 'incomplete'; throw new Error('Incomplete advice'); }
+    stage = 'format';
     const assessment = assessGeneratedAdvice(JSON.parse(message.content), context);
     const advice = { ...assessment.advice, growth_status: assessment.growth_status };
+    stage = 'save';
     const { data: saved, error: saveError } = await db.rpc(regenerating ? 'chappy_oct09_finish' : 'chappy_growth_finish', { p_user: user.id, p_date: date, p_request: requestId, p_advice: advice });
     if (saveError) throw new Error('Advice save failed');
     if (!saved) return reply(409, { status: 'changed' });
     return reply(200, { status: 'ready', advice, ...(date === '2026-10-09' ? { regenerated: regenerating } : {}) });
   } catch {
+    // Only a fixed stage code is logged. Never log raw errors or provider content.
+    console.error(JSON.stringify({ event: 'chappy_generation_failed', stage }));
     // Do not log/return diary text, provider response bodies, tokens or secrets.
     try {
       if (date && requestId && userId) await db.from(regenerating ? 'chappy_oct09_revision' : 'chappy_growth_advice').update({ request_id: null }).eq('user_id', userId).eq('date', date).eq('request_id', requestId).is('advice', null);
     } catch { /* Cleanup failure must not expose provider or database errors. */ }
-    return reply(502, { error: 'Advice unavailable; diary remains saved' });
+    return reply(502, { error: 'Advice unavailable; diary remains saved', code: stage, retry_after: 60 });
   }
 });

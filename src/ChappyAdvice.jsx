@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { supabase } from './supabase.js';
 import { growthExplanation } from './growthExplanation.js';
+import { adviceFailure } from './adviceFailure.js';
 
 export default function ChappyAdvice({ date, record }) {
   const [session, setSession] = useState(null);
@@ -15,6 +16,12 @@ export default function ChappyAdvice({ date, record }) {
   const [status, setStatus] = useState('');
   const [busy, setBusy] = useState(false);
   const [retry, setRetry] = useState(0);
+  const [retryAfter, setRetryAfter] = useState(0);
+  useEffect(() => {
+    if (!retryAfter) return;
+    const timer = setTimeout(() => setRetryAfter(n => Math.max(0, n - 1)), 1000);
+    return () => clearTimeout(timer);
+  }, [retryAfter]);
   const [regenerated, setRegenerated] = useState(false);
   const requestEpoch = useRef(0);
   useEffect(() => {
@@ -41,6 +48,7 @@ export default function ChappyAdvice({ date, record }) {
     setRegenerated(false);
     setAdvice(null);
     setStatus('');
+    setRetryAfter(0);
     setBusy(false);
     if (!session || !record || !Object.keys(record).length) return;
     setBusy(true);
@@ -51,9 +59,12 @@ export default function ChappyAdvice({ date, record }) {
         if (!active) return;
         if (error) throw error;
         if (data.status === 'ready') { setAdvice(data.advice); setRegenerated(data.regenerated === true); setStatus(''); }
-        else setStatus('生成中です。少し待ってから、もう一度ためしてね。');
+        else return adviceFailure(null, data).then(failure => { if (active) { setStatus(failure.message); setRetryAfter(failure.retryAfter); } });
       })
-      .catch(() => { if (active) setStatus('アドバイスを取得できませんでした。日記は保存されています。保護者に設定を確認してもらうか、もう一度ためしてね。'); })
+      .catch(async error => {
+        const failure = await adviceFailure(error);
+        if (active) { setStatus(failure.message); setRetryAfter(failure.retryAfter); }
+      })
       .finally(() => { if (active) setBusy(false); });
     return () => { active = false; };
   }, [date, record, session?.user?.id, retry]);
@@ -146,7 +157,7 @@ export default function ChappyAdvice({ date, record }) {
       </div>}
       {regenerated && <p style={{ fontSize: 12 }}>再生成したアドバイスを表示しています。以前の回答も保存されています。</p>}
       {!record && <p>日記を保存すると、アドバイスが届くよ。</p>}
-      {!busy && status && <button onClick={() => setRetry(n => n + 1)}>もう一度ためす</button>}
+      {!busy && status && <button disabled={retryAfter > 0} onClick={() => { if (!retryAfter) setRetry(n => n + 1); }}>{retryAfter > 0 ? `${retryAfter}秒後に再試行できます` : 'もう一度ためす'}</button>}
       <button disabled={authBusy} onClick={signOut} style={{ marginLeft: 8 }}>ログアウト</button>
       <button disabled={authBusy} onClick={() => { setEditingPassword(!editingPassword); setNewPassword(''); setConfirmPassword(''); setAuthStatus(''); }} style={{ marginLeft: 8 }}>パスワードを設定・変更</button>
       {editingPassword && <form onSubmit={savePassword} style={{ marginTop: 12 }}>
