@@ -34,8 +34,19 @@ Deno.serve(async req => {
     if (raw.length > 1024) return reply(413, { error: 'Request too large' });
     let body;
     try { body = JSON.parse(raw); } catch { return reply(400, { error: 'Invalid JSON' }); }
-    if (!validDate(body?.date) || !['generate', 'read', 'regenerate_oct09'].includes(body?.action)) return reply(400, { error: 'Invalid request' });
+    if (!validDate(body?.date) || !['generate', 'read', 'regenerate_oct09', 'previous_goal'].includes(body?.action)) return reply(400, { error: 'Invalid request' });
     date = body.date;
+    // No diary is required for goal lookup: the user may be writing a new day.
+    // Auth + allowlist are checked above; only the verified user's goals are read.
+    const previousGoals = async () => {
+      const { data, error } = await db.rpc('chappy_previous_goals', { p_user: user.id, p_date: date });
+      if (error) throw new Error('Previous goal read failed');
+      return data ?? [];
+    };
+    if (body.action === 'previous_goal') {
+      const goals = await previousGoals();
+      return reply(200, { status: 'ready', goal: goals[0] ?? null });
+    }
     regenerating = body.action === 'regenerate_oct09';
     if (regenerating && date !== '2026-10-09') return reply(400, { error: 'Regeneration is limited to 2026-10-09' });
     const savedAdvice = async () => {
@@ -68,7 +79,7 @@ Deno.serve(async req => {
       if (revisionError) throw new Error('History revision read failed');
       if (revision?.advice) revisionDay.advice = revision.advice;
     }
-    const context = growthContext(date, record.data, history ?? []);
+    const context = growthContext(date, record.data, history ?? [], await previousGoals());
     const input = JSON.stringify(context);
     requestId = crypto.randomUUID();
     const { data: claim, error: claimError } = await db.rpc(regenerating ? 'chappy_oct09_claim' : 'chappy_growth_claim', { p_date: date, p_source: record.data, p_request: requestId, p_user: user.id });
