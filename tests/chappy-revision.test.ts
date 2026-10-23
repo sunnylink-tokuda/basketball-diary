@@ -85,6 +85,7 @@ test('Edge regeneration is limited to owned October 9, reuses cached version, an
     rpc: async (name: string, args: any) => {
       assert.equal(args.p_user, owner);
       assert.equal(args.p_date, '2026-10-09');
+      if (name === 'chappy_previous_goals') return { data: [], error: null };
       if (name === 'chappy_growth_record') return { data: owned ? source : null, error: null };
       if (name === 'chappy_oct09_saved') return { data: { advice: cached, regenerated }, error: null };
       if (name === 'chappy_growth_history') return { data: [], error: null };

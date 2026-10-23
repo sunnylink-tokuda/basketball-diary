@@ -127,7 +127,13 @@ export default function ChappyAdvice({ date, record }) {
       <label style={{ display: 'block', marginBottom: 8 }}>パスワード <input type="password" required autoComplete="current-password" disabled={authBusy} value={password} onChange={e => setPassword(e.target.value)} /></label>
       <button disabled={authBusy} type="submit">{authBusy ? 'ログイン中…' : 'ログイン'}</button>
     </form> : <>
-      {advice && [['good', '今日よかったところ'], ['focus', '次に意識すること'], ['mission', '次回ミッション']].map(([key, label]) => <div key={key} style={{ marginBottom: 10 }}>
+      {advice?.practice_advice ? <section aria-label="5項目のAIアドバイス">
+        {[[1, '今日の良かったところ', advice.good], [2, '今日の改善ポイント', advice.focus], [3, '前回の目標の達成状況', advice.previous_goal_review?.comment], [4, '次回の練習で実践する具体的なアドバイス', advice.practice_advice], [5, '次回の重点目標', advice.priority_goal]].map(([number, label, text]) => <div key={number} style={{ marginBottom: 14 }}>
+          <strong style={{ fontSize: 14 }}>{number}. {label}</strong>
+          {number === 3 && advice.previous_goal_review?.goal && <p style={{ fontSize: 12 }}>対象：{advice.previous_goal_review.date}「{advice.previous_goal_review.goal}」</p>}
+          <p style={{ margin: '6px 0', fontSize: 16, lineHeight: 1.7, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{text}</p>
+        </div>)}
+      </section> : advice && [['good', '今日よかったところ'], ['focus', '次に意識すること'], ['mission', '次回ミッション']].map(([key, label]) => <div key={key} style={{ marginBottom: 10 }}>
         <strong style={{ fontSize: 13 }}>{label}</strong><p style={{ margin: '4px 0', fontSize: 14, whiteSpace: 'pre-wrap' }}>{advice[key]}</p>
       </div>)}
       {!!advice?.follow_up?.length && <section aria-label="前のアドバイスの振り返り" style={{ borderTop: '1px solid #d1c7f0', paddingTop: 10 }}>

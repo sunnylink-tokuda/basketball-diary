@@ -1,6 +1,8 @@
 import { useState, useEffect } from "react";
 import { supabase } from './supabase.js';
 import ChappyAdvice from './ChappyAdvice.jsx';
+import { PracticeReflectionForm, PracticeReflectionDisplay } from './PracticeReflection.jsx';
+import { initialReflection } from './practiceReflection.js';
 
 const COLOR = { solo: "#1D9E75", team: "#378ADD", game: "#D85A30", train: "#7F77DD", both: "#888", chore: "#E8A020" };
 const TEAM_OPTIONS = ["キングス","EMBC","KINGDOME","T's","その他"];
@@ -951,6 +953,7 @@ export default function App(){
   const[gamesList,setGamesList]=useState([newGame()]);
   const[choresList,setChoresList]=useState([newChore()]);
   const[daySummary,setDaySummary]=useState(newDaySummary());
+  const[reflectionForm,setReflectionForm]=useState({});
   const[statsTab,setStatsTab]=useState("month");
   const[parentComment,setParentComment]=useState("");
   const[editingParentComment,setEditingParentComment]=useState(false);
@@ -1005,6 +1008,7 @@ export default function App(){
     const count=[hasSolo,hasTeam,hasGame,hasTrain].filter(Boolean).length;
     if(count>=2) return COLOR.both;
     if(hasSolo) return COLOR.solo;if(hasTeam) return COLOR.team;if(hasGame) return COLOR.game;if(hasTrain) return COLOR.train;
+    if(r.practiceReflection) return COLOR.team;
     return null;
   }
 
@@ -1029,7 +1033,8 @@ export default function App(){
 
   function startEdit(type){
     const r=getRec(sel);
-    if(type==="solo") setSolosList(r.solos?.length>0?r.solos.map(s=>({...newSolo(),...s})):[newSolo()]);
+    if(type==="reflection") setReflectionForm(initialReflection(r));
+    else if(type==="solo") setSolosList(r.solos?.length>0?r.solos.map(s=>({...newSolo(),...s})):[newSolo()]);
     else if(type==="team") setTeamsList(r.teams?.length>0?r.teams.map(t=>({...newTeam(),...t})):[newTeam()]);
     else if(type==="training"){setTrainForm(r.training||{menus:[]});setTrainInput("");}
     else if(type==="chores") setChoresList(r.chores?.length>0?r.chores.map(c=>({...newChore(),...c})):[newChore()]);
@@ -1040,7 +1045,8 @@ export default function App(){
   async function saveEdit(){
     setSaving(true);
     let data;
-    if(editMode==="solo") data={solos:solosList};
+    if(editMode==="reflection") data={practiceReflection:reflectionForm};
+    else if(editMode==="solo") data={solos:solosList};
     else if(editMode==="team") data={teams:teamsList};
     else if(editMode==="training") data={training:trainForm};
     else if(editMode==="chores") data={chores:choresList};
@@ -1182,6 +1188,16 @@ export default function App(){
     const chores=rec.chores||[];
     const dayChoreTotal=chores.reduce((s,c)=>s+(parseInt(c.amount)||0),0);
 
+    if(editMode==="reflection") return(
+      <div style={{padding:"1rem",maxWidth:520,margin:"0 auto"}}>
+        <button onClick={()=>setEditMode(null)} style={{...btnS(),minHeight:44}}>← 戻る</button>
+        <h2 style={{fontSize:20}}>ハルキのバスケ日記</h2>
+        <p style={{fontSize:14}}>短くても大丈夫。今日のプレーを振り返ろう！</p>
+        <PracticeReflectionForm date={sel} value={reflectionForm} onChange={setReflectionForm}/>
+        <button onClick={saveEdit} disabled={saving} style={{...btnS(),background:COLOR.team,color:"#fff",width:"100%",minHeight:48,fontSize:17}}>{saving?"保存中...":"日記を保存"}</button>
+      </div>
+    );
+
     if(editMode==="solo") return(
       <div style={{padding:"1rem",maxWidth:520,margin:"0 auto"}}>
         <button onClick={()=>setEditMode(null)} style={btnS()}>← 戻る</button>
@@ -1310,6 +1326,9 @@ export default function App(){
           <span style={{fontSize:15,color:wdayColor,marginLeft:6}}>（{selWday}）</span>
         </h2>
 
+        <button onClick={()=>startEdit("reflection")} style={{...btnS(),background:COLOR.team,color:"#fff",width:"100%",minHeight:48,fontSize:16,marginBottom:12}}>{rec.practiceReflection?"5項目の日記を編集":"5項目の日記を書く"}</button>
+        {rec.practiceReflection&&<PracticeReflectionDisplay value={rec.practiceReflection}/>}
+        <p style={{fontSize:12,color:"#666"}}>練習時間・試合の成績や、以前の形式の記録も下から入力・編集できます。</p>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:6}}>
           {[{type:"solo",label:"自主練",color:COLOR.solo},{type:"team",label:"チーム練習",color:COLOR.team}].map(({type,label,color})=>(
             <button key={type} onClick={()=>startEdit(type)} style={btnS({borderColor:color,color:color,fontSize:12,padding:"8px 4px",textAlign:"center"})}>
@@ -1453,7 +1472,7 @@ export default function App(){
           </div>
         )}
 
-        {solos.length===0&&teams.length===0&&!rec.training&&games.length===0&&chores.length===0&&<p style={{fontSize:14,color:"#bbb",textAlign:"center",marginTop:32}}>まだ記録がありません</p>}
+        {solos.length===0&&teams.length===0&&!rec.training&&games.length===0&&chores.length===0&&!rec.practiceReflection&&<p style={{fontSize:14,color:"#bbb",textAlign:"center",marginTop:32}}>まだ記録がありません</p>}
 
         <ChappyAdvice date={sel} record={records[sel]} />
 

@@ -97,6 +97,7 @@ test('Edge Function generates from saved data, persists, caches, and handles sta
       return chain;
     },
     rpc: async (name: string, args: Record<string, unknown>) => {
+      if (name === 'chappy_previous_goals') return { data: [], error: null };
       if (name === 'chappy_growth_record') return { data: record, error: null };
       if (name === 'chappy_growth_history') return { data: [], error: null };
       if (name === 'chappy_growth_saved') return { data: cached, error: null };
@@ -163,6 +164,7 @@ test('Edge Function scopes historical reads to authenticated owner and preserves
     rpc: async (name: string, args: Record<string, unknown>) => {
       assert.equal(args.p_user, 'allowed-user');
       assert.equal(args.p_date, '2026-10-07');
+      if (name === 'chappy_previous_goals') return { data: [], error: null };
       if (name === 'chappy_growth_record') return { data: owned ? { daySummary: { memo: '今日もパスを取られた。顔は上げた' } } : null, error: null };
       if (name === 'chappy_growth_saved') return { data: cache, error: null };
       if (name === 'chappy_growth_history') { historyReads++; return { data: rows, error: null }; }
@@ -221,7 +223,7 @@ test('Edge Function persists new follow-up/growth shape and returns cached new o
   rows.unshift({ date: '2026-10-09', data: { daySummary: { memo: '声を出せなかった' } }, advice: prior });
   const quote = '右にいるよと仲間へ声を出した';
   const growth = { improved: '10/18と10/19は声が課題。今日は仲間に声を出したと書いているね。', ongoing: '知らせるタイミングを続けよう', new_challenge: '次の提案：方向も知らせよう', next: '近づいたらすぐ知らせよう', evidence_dates: dates };
-  const output = { good: `「${quote}」と振り返れたね。`, focus: '次も守備で知らせよう', mission: '次の3対3でスクリーンを見たら声で1回知らせよう', growth,
+  const output = { practice_advice: '次の守備で、相手の近づく方向を見て短く知らせよう。', good: `「${quote}」と振り返れたね。`, focus: '次も守備で知らせよう', mission: '次の3対3でスクリーンを見たら声で1回知らせよう', growth,
     follow_up: dates.map(date => ({ date, status: 'practiced', comment: `「${quote}」と書いたね。知らせる行動を試したね。` })),
     grounding: { current_quote: quote, growth_current_quote: quote, past_quotes: dates.map(date => ({ date, quote: '声を出せなかった' })), follow_up_quotes: dates.map(date => ({ date, quote })) },
   };
@@ -230,6 +232,7 @@ test('Edge Function persists new follow-up/growth shape and returns cached new o
     rpc: async (name: string, args: any) => {
       assert.equal(args.p_user, userId);
       if (name === 'chappy_oct09_saved') { assert.equal(args.p_date, '2026-10-09'); return { data: { advice: { ...prior, mission: '再生成版：声でスクリーンの方向を知らせよう' }, regenerated: true }, error: null }; }
+      if (name === 'chappy_previous_goals') return { data: [], error: null };
       if (name === 'chappy_growth_record') return { data: { daySummary: { memo: quote } }, error: null };
       if (name === 'chappy_growth_saved') return { data: cached, error: null };
       if (name === 'chappy_growth_history') return { data: rows, error: null };
@@ -258,6 +261,9 @@ test('Edge Function persists new follow-up/growth shape and returns cached new o
   assert.equal(response.status, 200);
   const result = await response.json();
   assert.equal(result.advice.follow_up[0].status, 'practiced');
+  assert.equal(result.advice.priority_goal, result.advice.mission);
+  assert.equal(result.advice.practice_advice, output.practice_advice);
+  assert.equal(result.advice.previous_goal_review.status, 'no_goal');
   assert.equal(result.advice.growth.new_challenge, growth.new_challenge);
   assert.equal('grounding' in result.advice, false);
   assert.deepEqual(await (await invoke()).json(), result);
