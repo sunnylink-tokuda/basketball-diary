@@ -15,9 +15,8 @@ Deno.serve(async req => {
   if (req.method !== 'POST') return reply(405, { error: 'Method not allowed' });
   const authorization = req.headers.get('Authorization');
   if (!authorization?.startsWith('Bearer ')) return reply(401, { error: 'Sign in required' });
-  const allowed = (Deno.env.get('CHAPPY_ALLOWED_USER_IDS') ?? '').split(',').map(id => id.trim()).filter(Boolean);
   const apiKey = Deno.env.get('OPENAI_API_KEY');
-  if (!allowed.length || !apiKey) return reply(503, { error: 'Advice is not configured' });
+  if (!apiKey) return reply(503, { error: 'Advice is not configured' });
   const db = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!, { auth: { persistSession: false, autoRefreshToken: false } });
   let date: string | undefined;
   let requestId: string | undefined;
@@ -25,21 +24,24 @@ Deno.serve(async req => {
   let regenerating = false;
   let stage = 'record';
   try {
-    const { data: { user }, error: authError } = await db.auth.getUser(authorization.slice(7));
-    if (authError || !user) return reply(401, { error: 'Sign in required' });
-    // Auth + allowlist + explicit ownership. Never infer ownership from dates.
-    if (user.is_anonymous || !allowed.includes(user.id)) return reply(403, { error: 'Not authorized' });
-    userId = user.id;
+    // No user accounts. The family app sends the public anon key; it only
+    // proves the caller is the app itself. All data access stays server-side
+    // and is scoped to the single family owner resolved below.
+    if (authorization.slice(7) !== Deno.env.get('SUPABASE_ANON_KEY')) return reply(401, { error: 'Sign in required' });
     const raw = await req.text();
     if (raw.length > 1024) return reply(413, { error: 'Request too large' });
     let body;
     try { body = JSON.parse(raw); } catch { return reply(400, { error: 'Invalid JSON' }); }
     if (!validDate(body?.date) || !['generate', 'read', 'regenerate_oct09', 'previous_goal'].includes(body?.action)) return reply(400, { error: 'Invalid request' });
     date = body.date;
+    const { data: familyUser, error: familyError } = await db.rpc('chappy_family_user');
+    if (familyError) throw new Error('Family owner lookup failed');
+    if (!familyUser) return reply(404, { error: 'Diary missing or ownership not registered' });
+    userId = familyUser as string;
     // No diary is required for goal lookup: the user may be writing a new day.
-    // Auth + allowlist are checked above; only the verified user's goals are read.
+    // Only the family owner's goals are read.
     const previousGoals = async () => {
-      const { data, error } = await db.rpc('chappy_previous_goals', { p_user: user.id, p_date: date });
+      const { data, error } = await db.rpc('chappy_previous_goals', { p_user: userId, p_date: date });
       if (error) throw new Error('Previous goal read failed');
       return data ?? [];
     };
@@ -51,16 +53,16 @@ Deno.serve(async req => {
     if (regenerating && date !== '2026-10-09') return reply(400, { error: 'Regeneration is limited to 2026-10-09' });
     const savedAdvice = async () => {
       if (date === '2026-10-09') {
-        const { data, error } = await db.rpc('chappy_oct09_saved', { p_user: user.id, p_date: date });
+        const { data, error } = await db.rpc('chappy_oct09_saved', { p_user: userId, p_date: date });
         if (error) throw new Error('Revision read failed');
         return { advice: data?.advice ?? null, regenerated: data?.regenerated === true };
       }
-      const { data, error } = await db.rpc('chappy_growth_saved', { p_user: user.id, p_date: date });
+      const { data, error } = await db.rpc('chappy_growth_saved', { p_user: userId, p_date: date });
       if (error) throw new Error('Advice read failed');
       return { advice: data, regenerated: false };
     };
     const ready = (cached: { advice: unknown; regenerated: boolean }) => reply(200, { status: 'ready', advice: validateStoredAdvice(cached.advice), ...(date === '2026-10-09' ? { regenerated: cached.regenerated } : {}) });
-    const { data: source, error: recordError } = await db.rpc('chappy_growth_record', { p_user: user.id, p_date: date });
+    const { data: source, error: recordError } = await db.rpc('chappy_growth_record', { p_user: userId, p_date: date });
     const record = source ? { data: source } : null;
     if (recordError) throw new Error('Record read failed');
     if (!record) return reply(404, { error: 'Diary missing or ownership not registered' });
@@ -69,20 +71,20 @@ Deno.serve(async req => {
     if (current.advice && (!regenerating || current.regenerated)) return ready(current);
     if (regenerating && !current.advice) return reply(409, { error: 'Original advice missing' });
     if (body.action === 'read') return reply(200, { status: 'missing' });
-    const { data: history, error: historyError } = await db.rpc('chappy_growth_history', { p_user: user.id, p_date: date });
+    const { data: history, error: historyError } = await db.rpc('chappy_growth_history', { p_user: userId, p_date: date });
     if (historyError) throw new Error('History read failed');
     // Use the successful revision for the one date that supports versioning.
     // The owner-scoped RPC is read-only; never replace old advice in the database.
     const revisionDay = history?.find((row: { date: string; advice?: unknown }) => row.date === '2026-10-09');
     if (revisionDay) {
-      const { data: revision, error: revisionError } = await db.rpc('chappy_oct09_saved', { p_user: user.id, p_date: '2026-10-09' });
+      const { data: revision, error: revisionError } = await db.rpc('chappy_oct09_saved', { p_user: userId, p_date: '2026-10-09' });
       if (revisionError) throw new Error('History revision read failed');
       if (revision?.advice) revisionDay.advice = revision.advice;
     }
     const context = growthContext(date, record.data, history ?? [], await previousGoals());
     const input = JSON.stringify(context);
     requestId = crypto.randomUUID();
-    const { data: claim, error: claimError } = await db.rpc(regenerating ? 'chappy_oct09_claim' : 'chappy_growth_claim', { p_date: date, p_source: record.data, p_request: requestId, p_user: user.id });
+    const { data: claim, error: claimError } = await db.rpc(regenerating ? 'chappy_oct09_claim' : 'chappy_growth_claim', { p_date: date, p_source: record.data, p_request: requestId, p_user: userId });
     if (claimError) throw new Error('Claim failed');
     if (claim === 'ready') {
       const cached = await savedAdvice();
@@ -114,7 +116,7 @@ Deno.serve(async req => {
     const assessment = assessGeneratedAdvice(JSON.parse(message.content), context);
     const advice = { ...assessment.advice, growth_status: assessment.growth_status };
     stage = 'save';
-    const { data: saved, error: saveError } = await db.rpc(regenerating ? 'chappy_oct09_finish' : 'chappy_growth_finish', { p_user: user.id, p_date: date, p_request: requestId, p_advice: advice });
+    const { data: saved, error: saveError } = await db.rpc(regenerating ? 'chappy_oct09_finish' : 'chappy_growth_finish', { p_user: userId, p_date: date, p_request: requestId, p_advice: advice });
     if (saveError) throw new Error('Advice save failed');
     if (!saved) return reply(409, { status: 'changed' });
     return reply(200, { status: 'ready', advice, ...(date === '2026-10-09' ? { regenerated: regenerating } : {}) });

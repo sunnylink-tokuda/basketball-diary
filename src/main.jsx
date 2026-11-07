@@ -1,10 +1,9 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import App from './App.jsx'
-import RecoveryGate from './RecoveryGate.jsx'
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
-    <RecoveryGate><App /></RecoveryGate>
+    <App />
   </React.StrictMode>
 )

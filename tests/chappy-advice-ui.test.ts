@@ -1,0 +1,144 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import { runInNewContext } from 'node:vm';
+import { transformSync } from 'esbuild';
+import React from 'react';
+import { growthExplanation } from '../src/growthExplanation.js';
+import { adviceFailure } from '../src/adviceFailure.js';
+import TestRenderer, { act } from 'react-test-renderer';
+
+const require = createRequire(import.meta.url);
+
+function fixture(advice: unknown = { good: '工夫したね', focus: '周りを見よう', mission: 'パス前に顔を上げよう' }) {
+  let generationFailure: unknown = null;
+  let generationCalls = 0;
+  let failRevision = false;
+  let regenerationCalls = 0;
+  let latestAdvice = advice;
+  let regenerated = false;
+  let holdRevision = false;
+  let releaseRevision: (() => void) | undefined;
+  const supabase = {
+    functions: { invoke: async (_name: string, options: any) => { generationCalls++; if (generationFailure) return { data: null, error: generationFailure }; if (options.body.action === 'regenerate_oct09') { regenerationCalls++; if (holdRevision) await new Promise<void>(resolve => { releaseRevision = resolve; }); if (failRevision) return { data: null, error: new Error('Generation failed') }; latestAdvice = { good: '新しい回答', focus: '一つを見る', mission: '次に一度見る', growth: null }; regenerated = true; } return { data: { status: 'ready', advice: latestAdvice, regenerated }, error: null }; } },
+  };
+  const module = { exports: {} as { default: React.ComponentType<any> } };
+  const code = transformSync(readFileSync('src/ChappyAdvice.jsx', 'utf8'), { loader: 'jsx', format: 'cjs', jsx: 'automatic' }).code;
+  runInNewContext(code, { module, exports: module.exports, setTimeout, clearTimeout, require: (name: string) => name === './supabase.js' ? { supabase } : name === './growthExplanation.js' ? { growthExplanation } : name === './adviceFailure.js' ? { adviceFailure } : require(name) });
+  return { Component: module.exports.default, generationFails: (error: unknown) => { generationFailure = error; }, holdRevision: () => { holdRevision = true; }, releaseRevision: () => releaseRevision?.(), failRevision: () => { failRevision = true; }, succeedRevision: () => { failRevision = false; }, counts: () => ({ generationCalls, regenerationCalls }) };
+}
+
+test('advice loads immediately with no login form or auth controls anywhere', async () => {
+  const f = fixture();
+  let tree: TestRenderer.ReactTestRenderer;
+  await act(async () => { tree = TestRenderer.create(React.createElement(f.Component, { date: '2026-10-07', record: { solos: [] } })); });
+  assert.equal(f.counts().generationCalls, 1);
+  const text = JSON.stringify(tree!.toJSON());
+  assert.match(text, /工夫したね/);
+  assert.doesNotMatch(text, /ログイン|パスワード|ログアウト/);
+  assert.equal(tree!.root.findAllByType('input').length, 0);
+  assert.equal(tree!.root.findAllByType('form').length, 0);
+  await act(async () => tree!.unmount());
+});
+
+test('optional growth section shows evidence; legacy and insufficient-history advice keep three sections', async () => {
+  const base = { good: '工夫したね', focus: '周りを見よう', mission: 'パス前に顔を上げよう' };
+  for (const growth of [undefined, null, { improved: '守備を見てパスできたね', ongoing: '通り道を選ぼう', next: '空くまで待とう', evidence_dates: ['2026-10-01', '2026-10-04'] }]) {
+    const f = fixture(growth === undefined ? base : { ...base, growth });
+    let tree: TestRenderer.ReactTestRenderer;
+    await act(async () => { tree = TestRenderer.create(React.createElement(f.Component, { date: '2026-10-07', record: { solos: [] } })); });
+    const text = JSON.stringify(tree!.toJSON());
+    assert.match(text, /今日よかったところ/);
+    assert.match(text, /次に意識すること/);
+    assert.match(text, /次回ミッション/);
+    if (growth) {
+      assert.match(text, /チャッピーの成長チェック/);
+      assert.match(text, /守備を見てパスできたね/);
+      assert.match(text, /2026-10-01/);
+      assert.match(text, /2026-10-04/);
+    } else assert.doesNotMatch(text, /チャッピーの成長チェック/);
+    await act(async () => tree!.unmount());
+  }
+});
+
+test('parents see persisted reason and counts; old missing reasons are never inferred', async () => {
+  for (const status of [undefined, { code: 'past_evidence_unverified', history_count: 20, comparable_count: 5 }]) {
+    const f = fixture({ good: '記録したね', focus: '周りを見よう', mission: '一度見よう', growth: null, ...(status ? { growth_status: status } : {}) });
+    let tree: TestRenderer.ReactTestRenderer;
+    await act(async () => { tree = TestRenderer.create(React.createElement(f.Component, { date: '2026-10-09', record: { teams: [] } })); });
+    const text = JSON.stringify(tree!.toJSON());
+    assert.match(text, /保護者の方へ/);
+    assert.match(text, /成長していないという意味ではありません/);
+    assert.match(text, status ? /過去の日記の引用を確認できなかった/ : /生成時の理由が記録されていません/);
+    if (status) { assert.match(text, /20/); assert.match(text, /5/); }
+    assert.equal(f.counts().generationCalls, 1);
+    await act(async () => tree!.unmount());
+  }
+});
+
+test('October 9 regeneration keeps old advice on failure, switches on success and disappears on other dates', async () => {
+  const f = fixture();
+  let tree: TestRenderer.ReactTestRenderer;
+  await act(async () => { tree = TestRenderer.create(React.createElement(f.Component, { date: '2026-10-09', record: { teams: [] } })); });
+  const button = () => tree!.root.findAllByType('button').find(b => b.props.children === '10月9日のアドバイスを再生成');
+  assert.ok(button());
+  f.failRevision();
+  await act(async () => { await button()!.props.onClick(); });
+  assert.match(JSON.stringify(tree!.toJSON()), /工夫したね/);
+  assert.match(JSON.stringify(tree!.toJSON()), /以前のアドバイスはそのまま残っています/);
+  f.succeedRevision();
+  await act(async () => { await button()!.props.onClick(); });
+  assert.match(JSON.stringify(tree!.toJSON()), /新しい回答/);
+  assert.match(JSON.stringify(tree!.toJSON()), /以前の回答も保存されています/);
+  assert.equal(button(), undefined);
+  await act(async () => { tree!.update(React.createElement(f.Component, { date: '2026-10-08', record: { teams: [] } })); });
+  assert.equal(button(), undefined);
+  assert.equal(f.counts().regenerationCalls, 2);
+  await act(async () => tree!.unmount());
+});
+
+test('a late October 9 regeneration response cannot replace another date on screen', async () => {
+  const f = fixture();
+  f.holdRevision();
+  let tree: TestRenderer.ReactTestRenderer;
+  await act(async () => { tree = TestRenderer.create(React.createElement(f.Component, { date: '2026-10-09', record: { teams: [] } })); });
+  let pending: Promise<void>;
+  await act(async () => { pending = tree!.root.findAllByType('button').find(b => b.props.children === '10月9日のアドバイスを再生成')!.props.onClick(); });
+  assert.match(JSON.stringify(tree!.toJSON()), /工夫したね/);
+  await act(async () => { tree!.update(React.createElement(f.Component, { date: '2026-10-08', record: { teams: [] } })); });
+  await act(async () => { f.releaseRevision(); await pending!; });
+  assert.doesNotMatch(JSON.stringify(tree!.toJSON()), /新しい回答/);
+  await act(async () => tree!.unmount());
+});
+
+test('new coaching displays follow-up questions and separates confirmed growth, ongoing tasks and new challenges', async () => {
+  const f = fixture({
+    good: '声を出したと振り返れたね', focus: '次も知らせよう', mission: '次の守備でスクリーンを1回知らせよう',
+    follow_up: [{ date: '2026-10-19', status: 'unknown', comment: '前のミッションは試せたかな？ 次の日記で教えてね。' }],
+    growth: { improved: '声を出した記録があるね', ongoing: '知らせるタイミングを続けよう', new_challenge: '次の提案：方向も知らせよう', next: '近づいたらすぐ知らせよう', evidence_dates: ['2026-10-18', '2026-10-19'] },
+  });
+  let tree: TestRenderer.ReactTestRenderer;
+  await act(async () => { tree = TestRenderer.create(React.createElement(f.Component, { date: '2026-10-20', record: { teams: [] } })); });
+  const text = JSON.stringify(tree!.toJSON());
+  for (const phrase of ['前のアドバイスを振り返ろう', '2026-10-19', 'まだ確認できないこと', '試せたかな', '答えは次の日記に書いてね', '成長が確認できたこと', '継続中の課題', '新しい挑戦', '次の提案：方向も知らせよう']) assert.ok(text.includes(phrase));
+  assert.equal(f.counts().generationCalls, 1);
+  await act(async () => tree!.unmount());
+});
+
+test('generation wait shows a disabled retry countdown instead of a settings error', async () => {
+  const f = fixture();
+  f.generationFails({ context: new Response(JSON.stringify({ status: 'busy', retry_after: 1 }), { status: 409 }) });
+  let tree: TestRenderer.ReactTestRenderer;
+  await act(async () => { tree = TestRenderer.create(React.createElement(f.Component, { date: '2026-10-20', record: { teams: [] } })); });
+  const text = JSON.stringify(tree!.toJSON());
+  assert.match(text, /待ち時間/);
+  assert.doesNotMatch(text, /保護者に設定を確認/);
+  const retry = tree!.root.findAllByType('button').find(button => /秒後に再試行/.test(String(button.props.children)));
+  assert.ok(retry?.props.disabled);
+  await act(async () => retry!.props.onClick());
+  assert.equal(f.counts().generationCalls, 1);
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 1100)); });
+  assert.ok(tree!.root.findAllByType('button').some(button => button.props.children === 'もう一度ためす' && !button.props.disabled));
+  await act(async () => tree!.unmount());
+});
