@@ -4,14 +4,6 @@ import { growthExplanation } from './growthExplanation.js';
 import { adviceFailure } from './adviceFailure.js';
 
 export default function ChappyAdvice({ date, record }) {
-  const [session, setSession] = useState(null);
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [authBusy, setAuthBusy] = useState(false);
-  const [authStatus, setAuthStatus] = useState('');
-  const [editingPassword, setEditingPassword] = useState(false);
-  const [newPassword, setNewPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
   const [advice, setAdvice] = useState(null);
   const [status, setStatus] = useState('');
   const [busy, setBusy] = useState(false);
@@ -26,31 +18,13 @@ export default function ChappyAdvice({ date, record }) {
   const requestEpoch = useRef(0);
   useEffect(() => {
     let active = true;
-    let authEventObserved = false;
-    const { data } = supabase.auth.onAuthStateChange((_event, next) => {
-      authEventObserved = true;
-      if (active) {
-        setSession(next);
-        if (!next) { setEditingPassword(false); setNewPassword(''); setConfirmPassword(''); }
-      }
-    });
-    supabase.auth.getSession().then(({ data, error }) => {
-      if (active && !authEventObserved) {
-        if (error) setAuthStatus('ログイン状態を確認できませんでした。もう一度ログインしてね。');
-        else setSession(data.session);
-      }
-    }).catch(() => { if (active) setAuthStatus('ログイン状態を確認できませんでした。'); });
-    return () => { active = false; data.subscription.unsubscribe(); };
-  }, []);
-  useEffect(() => {
-    let active = true;
     requestEpoch.current++;
     setRegenerated(false);
     setAdvice(null);
     setStatus('');
     setRetryAfter(0);
     setBusy(false);
-    if (!session || !record || !Object.keys(record).length) return;
+    if (!record || !Object.keys(record).length) return;
     setBusy(true);
     setStatus('チャッピーが日記を読んでいるよ…');
     // The server reads the saved record. Never send unsaved diary text or API keys.
@@ -67,9 +41,9 @@ export default function ChappyAdvice({ date, record }) {
       })
       .finally(() => { if (active) setBusy(false); });
     return () => { active = false; };
-  }, [date, record, session?.user?.id, retry]);
+  }, [date, record, retry]);
   async function regenerateOct09() {
-    if (busy || !session || !advice || regenerated || date !== '2026-10-09') return;
+    if (busy || !advice || regenerated || date !== '2026-10-09') return;
     const epoch = requestEpoch.current;
     setBusy(true);
     setStatus('10月9日のアドバイスを再生成しています。成功するまで以前の回答を表示します。');
@@ -82,51 +56,9 @@ export default function ChappyAdvice({ date, record }) {
       if (epoch === requestEpoch.current) setStatus('再生成できませんでした。以前のアドバイスはそのまま残っています。少し待ってから再生成ボタンでためしてください。');
     } finally { if (epoch === requestEpoch.current) setBusy(false); }
   }
-  async function signIn(event) {
-    event.preventDefault();
-    if (authBusy) return;
-    setAuthBusy(true);
-    setAuthStatus('');
-    try {
-      const { data, error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
-      if (error || !data.session) {
-        setAuthStatus('ログインできませんでした。メールアドレスとパスワードを確認してね。まだパスワードを設定していない場合は、保護者に相談してね。');
-      } else { setSession(data.session); setPassword(''); }
-    } catch { setAuthStatus('通信できませんでした。少し待って、もう一度ログインしてね。'); }
-    finally { setAuthBusy(false); }
-  }
-  async function signOut() {
-    setAuthBusy(true);
-    setAuthStatus('');
-    try {
-      const { error } = await supabase.auth.signOut();
-      if (error) throw error;
-      setSession(null); setAdvice(null); setPassword('');
-      setEditingPassword(false); setNewPassword(''); setConfirmPassword('');
-    } catch { setAuthStatus('ログアウトできませんでした。もう一度ためしてね。'); }
-    finally { setAuthBusy(false); }
-  }
-  async function savePassword(event) {
-    event.preventDefault();
-    if (authBusy) return;
-    if (newPassword !== confirmPassword) { setAuthStatus('確認用パスワードが一致していません。'); return; }
-    setAuthBusy(true); setAuthStatus('');
-    try {
-      const { error } = await supabase.auth.updateUser({ password: newPassword });
-      if (error) throw error;
-      setNewPassword(''); setConfirmPassword(''); setEditingPassword(false);
-      setAuthStatus('パスワードを設定しました。次回はメールアドレスとパスワードでログインできます。');
-    } catch { setAuthStatus('パスワードを設定できませんでした。Supabaseのパスワード条件を確認してね。ログインし直すか、新しい再設定リンクが必要な場合もあります。'); }
-    finally { setAuthBusy(false); }
-  }
   return <section style={{ background: '#f0edff', borderRadius: 12, padding: 14, margin: '16px 0' }} aria-label="チャッピーからのアドバイス">
     <h3 style={{ fontSize: 16, margin: '0 0 10px' }}>🤖 チャッピーからのアドバイス</h3>
-    {!session ? <form onSubmit={signIn}>
-      <p style={{ fontSize: 13 }}>保護者が登録したメールアドレスとパスワードでログインしてね。保存した日記の練習内容をAIに送って考えてもらうよ。</p>
-      <label style={{ display: 'block', marginBottom: 8 }}>メールアドレス <input type="email" required autoComplete="username" disabled={authBusy} value={email} onChange={e => setEmail(e.target.value)} /></label>
-      <label style={{ display: 'block', marginBottom: 8 }}>パスワード <input type="password" required autoComplete="current-password" disabled={authBusy} value={password} onChange={e => setPassword(e.target.value)} /></label>
-      <button disabled={authBusy} type="submit">{authBusy ? 'ログイン中…' : 'ログイン'}</button>
-    </form> : <>
+    <>
       {advice?.practice_advice ? <section aria-label="5項目のAIアドバイス">
         {[[1, '今日の良かったところ', advice.good], [2, '今日の改善ポイント', advice.focus], [3, '前回の目標の達成状況', advice.previous_goal_review?.comment], [4, '次回の練習で実践する具体的なアドバイス', advice.practice_advice], [5, '次回の重点目標', advice.priority_goal]].map(([number, label, text]) => <div key={number} style={{ marginBottom: 14 }}>
           <strong style={{ fontSize: 14 }}>{number}. {label}</strong>
@@ -164,16 +96,8 @@ export default function ChappyAdvice({ date, record }) {
       {regenerated && <p style={{ fontSize: 12 }}>再生成したアドバイスを表示しています。以前の回答も保存されています。</p>}
       {!record && <p>日記を保存すると、アドバイスが届くよ。</p>}
       {!busy && status && <button disabled={retryAfter > 0} onClick={() => { if (!retryAfter) setRetry(n => n + 1); }}>{retryAfter > 0 ? `${retryAfter}秒後に再試行できます` : 'もう一度ためす'}</button>}
-      <button disabled={authBusy} onClick={signOut} style={{ marginLeft: 8 }}>ログアウト</button>
-      <button disabled={authBusy} onClick={() => { setEditingPassword(!editingPassword); setNewPassword(''); setConfirmPassword(''); setAuthStatus(''); }} style={{ marginLeft: 8 }}>パスワードを設定・変更</button>
-      {editingPassword && <form onSubmit={savePassword} style={{ marginTop: 12 }}>
-        <label style={{ display: 'block', marginBottom: 8 }}>新しいパスワード <input type="password" required minLength={8} autoComplete="new-password" disabled={authBusy} value={newPassword} onChange={e => setNewPassword(e.target.value)} /></label>
-        <label style={{ display: 'block', marginBottom: 8 }}>新しいパスワード（確認） <input type="password" required minLength={8} autoComplete="new-password" disabled={authBusy} value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} /></label>
-        <button type="submit" disabled={authBusy}>{authBusy ? '設定中…' : 'パスワードを保存'}</button>
-      </form>}
       <p style={{ fontSize: 11 }}>AIのアドバイスです。痛みやけががあるときは無理せず、保護者やコーチに相談してね。</p>
-    </>}
+    </>
     <p role="status" aria-live="polite" style={{ fontSize: 13 }}>{status}</p>
-    <p role="status" aria-live="polite" style={{ fontSize: 13 }}>{authStatus}</p>
   </section>;
 }

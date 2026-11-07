@@ -10,24 +10,15 @@ export function PracticeReflectionForm({ date, value, onChange, onGoalState }) {
   const [reload, setReload] = useState(0);
   useEffect(() => {
     let active = true;
-    let epoch = 0;
-    async function load(session) {
-      const request = ++epoch;
-      if (!session) { if (active) setLookup({ state: 'signed_out', goal: null }); return; }
-      setLookup({ state: 'loading', goal: null });
+    setLookup({ state: 'loading', goal: null });
+    (async () => {
       try {
         const { data, error } = await supabase.functions.invoke('chappy-advice', { body: { date, action: 'previous_goal' } });
         if (error || data?.status !== 'ready') throw new Error('Goal unavailable');
-        if (active && request === epoch) setLookup({ state: 'ready', goal: data.goal });
-      } catch { if (active && request === epoch) setLookup({ state: 'error', goal: null }); }
-    }
-    let observed = false;
-    const { data } = supabase.auth.onAuthStateChange((_event, session) => { observed = true; load(session); });
-    supabase.auth.getSession().then(({ data, error }) => {
-      if (!active || observed) return;
-      if (error) setLookup({ state: 'error', goal: null }); else load(data.session);
-    }).catch(() => { if (active) setLookup({ state: 'error', goal: null }); });
-    return () => { active = false; epoch++; data.subscription.unsubscribe(); };
+        if (active) setLookup({ state: 'ready', goal: data.goal });
+      } catch { if (active) setLookup({ state: 'error', goal: null }); }
+    })();
+    return () => { active = false; };
   }, [date, reload]);
   useEffect(() => { onGoalState?.(lookup.state); }, [lookup.state, onGoalState]);
   // Keep the exact goal answered when editing an existing diary. Never silently
@@ -59,7 +50,7 @@ export function PracticeReflectionForm({ date, value, onChange, onGoalState }) {
         <label style={{ display: 'block', margin: '12px 0 6px' }} htmlFor="goal-review-memo">どんな場面だった？（書かなくてもOK）</label>
         <textarea id="goal-review-memo" rows={2} style={fieldStyle} value={review.memo || ''} onChange={e => changeReview({ memo: e.target.value })} />
       </> : lookup.state === 'ready' ? <p>前回の目標はありません</p> : <div role="status">
-        <p>{lookup.state === 'loading' ? '前回の目標を確認中…' : lookup.state === 'signed_out' ? '前回の目標を表示するには、日記の詳細画面のチャッピー欄でログインしてね。日記はそのまま書けます。' : '前回の目標を取得できませんでした。日記の入力は続けられます。'}</p>
+        <p>{lookup.state === 'loading' ? '前回の目標を確認中…' : '前回の目標を取得できませんでした。日記の入力は続けられます。'}</p>
         {lookup.state === 'error' && <button type="button" onClick={() => setReload(n => n + 1)} style={{ minHeight: 44 }}>目標をもう一度確認</button>}
       </div>}
     </section>

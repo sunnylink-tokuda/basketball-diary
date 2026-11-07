@@ -55,28 +55,29 @@ test('database caching, leases, changed records, RLS, budget and cascade', async
   await db.close();
 });
 
-test('Edge Function fails closed before any generation for missing/invalid auth', async () => {
+test('Edge Function fails closed before any generation for missing/invalid anon key', async () => {
   let handler: (req: Request) => Promise<Response>;
   let apiCalls = 0;
-  let allowlist = 'allowed-user';
-  let user: unknown = { id: 'outsider' };
+  let openAiKey: string | undefined = 'test-only-placeholder';
+  let familyUser: string | null = 'allowed-user';
   const code = transformSync(readFileSync('supabase/functions/chappy-advice/index.ts', 'utf8'), { loader: 'ts', format: 'cjs' }).code;
   runInNewContext(code, {
     exports: {}, Response, Request, AbortSignal, crypto,
-    Deno: { env: { get: (key: string) => ({ CHAPPY_ALLOWED_USER_IDS: allowlist, OPENAI_API_KEY: 'test-only-placeholder', SUPABASE_URL: 'https://example.invalid', SUPABASE_SERVICE_ROLE_KEY: 'test-only-placeholder' })[key] }, serve: (fn: typeof handler) => { handler = fn; } },
-    require: (name: string) => name === './advice.ts' ? adviceModule : { createClient: () => ({ auth: { getUser: async () => ({ data: { user }, error: null }) } }) },
+    Deno: { env: { get: (key: string) => ({ SUPABASE_ANON_KEY: 'test-anon-key', OPENAI_API_KEY: openAiKey, SUPABASE_URL: 'https://example.invalid', SUPABASE_SERVICE_ROLE_KEY: 'test-only-placeholder' })[key] }, serve: (fn: typeof handler) => { handler = fn; } },
+    require: (name: string) => name === './advice.ts' ? adviceModule : { createClient: () => ({ rpc: async (name: string) => { if (name === 'chappy_family_user') return { data: familyUser, error: null }; throw Error('Unexpected RPC'); } }) },
     fetch: () => { apiCalls++; throw Error('Must not call OpenAI'); },
   });
   const request = (body: string, auth?: string) => new Request('https://example.invalid', { method: 'POST', headers: auth ? { Authorization: auth } : {}, body });
-  assert.equal((await handler!(request('{}'))).status, 401);
-  assert.equal((await handler!(request('{}', 'Bearer jwt'))).status, 403);
-  user = { id: 'allowed-user', is_anonymous: true };
-  assert.equal((await handler!(request('{}', 'Bearer jwt'))).status, 403);
-  user = { id: 'allowed-user' };
-  assert.equal((await handler!(request('invalid json', 'Bearer jwt'))).status, 400);
-  assert.equal((await handler!(request('{"date":"__meta__","action":"generate"}', 'Bearer jwt'))).status, 400);
-  allowlist = '';
-  assert.equal((await handler!(request('{}', 'Bearer jwt'))).status, 503);
+  const valid = JSON.stringify({ date: '2026-10-07', action: 'generate' });
+  assert.equal((await handler!(request(valid))).status, 401);
+  assert.equal((await handler!(request(valid, 'Bearer some-other-key'))).status, 401);
+  familyUser = null;
+  assert.equal((await handler!(request(valid, 'Bearer test-anon-key'))).status, 404);
+  familyUser = 'allowed-user';
+  assert.equal((await handler!(request('invalid json', 'Bearer test-anon-key'))).status, 400);
+  assert.equal((await handler!(request('{"date":"__meta__","action":"generate"}', 'Bearer test-anon-key'))).status, 400);
+  openAiKey = undefined;
+  assert.equal((await handler!(request(valid, 'Bearer test-anon-key'))).status, 503);
   assert.equal(apiCalls, 0);
 });
 
@@ -91,12 +92,12 @@ test('Edge Function generates from saved data, persists, caches, and handles sta
   let output: unknown = { good: 'パスを工夫したね。', focus: '顔を上げよう。', mission: '次回、パス前に周りを見よう。', growth: null };
   const record = { teams: [{ good: 'パスを工夫した', teamName: 'private' }], parentComment: 'private' };
   const db = {
-    auth: { getUser: async () => ({ data: { user: { id: 'allowed-user' } }, error: null }) },
     from: () => {
       const chain = { select: () => chain, update: () => chain, eq: () => chain, is: () => chain, maybeSingle: async () => ({ data: { data: record }, error: null }) };
       return chain;
     },
     rpc: async (name: string, args: Record<string, unknown>) => {
+      if (name === 'chappy_family_user') return { data: 'allowed-user', error: null };
       if (name === 'chappy_previous_goals') return { data: [], error: null };
       if (name === 'chappy_growth_record') return { data: record, error: null };
       if (name === 'chappy_growth_history') return { data: [], error: null };
@@ -109,7 +110,7 @@ test('Edge Function generates from saved data, persists, caches, and handles sta
   const code = transformSync(readFileSync('supabase/functions/chappy-advice/index.ts', 'utf8'), { loader: 'ts', format: 'cjs' }).code;
   runInNewContext(code, {
     exports: {}, Response, Request, AbortSignal, crypto,
-    Deno: { env: { get: (key: string) => ({ CHAPPY_ALLOWED_USER_IDS: 'allowed-user', OPENAI_API_KEY: 'test-only-placeholder', SUPABASE_URL: 'https://example.invalid', SUPABASE_SERVICE_ROLE_KEY: 'test-only-placeholder' })[key] }, serve: (fn: typeof handler) => { handler = fn; } },
+    Deno: { env: { get: (key: string) => ({ SUPABASE_ANON_KEY: 'test-anon-key', OPENAI_API_KEY: 'test-only-placeholder', SUPABASE_URL: 'https://example.invalid', SUPABASE_SERVICE_ROLE_KEY: 'test-only-placeholder' })[key] }, serve: (fn: typeof handler) => { handler = fn; } },
     require: (name: string) => name === './advice.ts' ? adviceModule : { createClient: () => db },
     fetch: async (url: string, options: { body: string }) => {
       calls++;
@@ -121,7 +122,7 @@ test('Edge Function generates from saved data, persists, caches, and handles sta
       return new Response(JSON.stringify({ choices: [{ finish_reason: finishReason, message: { content: JSON.stringify({ ...(output as object), grounding: { current_quote: 'パスを工夫した', past_quotes: [] } }) } }] }), { status: providerOk ? 200 : 500 });
     },
   });
-  const invoke = () => handler!(new Request('https://example.invalid', { method: 'POST', headers: { Authorization: 'Bearer jwt' }, body: JSON.stringify({ date: '2026-10-07', action: 'generate', data: 'untrusted unsaved text' }) }));
+  const invoke = () => handler!(new Request('https://example.invalid', { method: 'POST', headers: { Authorization: 'Bearer test-anon-key' }, body: JSON.stringify({ date: '2026-10-07', action: 'generate', data: 'untrusted unsaved text' }) }));
   const generated = await invoke();
   assert.equal(generated.status, 200);
   assert.deepEqual(await generated.json(), { status: 'ready', advice: { ...(output as object), growth_status: { code: 'no_history', history_count: 0, comparable_count: 0 } } });
@@ -148,7 +149,7 @@ test('Edge Function generates from saved data, persists, caches, and handles sta
   assert.equal(finishes, 2);
 });
 
-test('Edge Function scopes historical reads to authenticated owner and preserves cached legacy advice', async () => {
+test('Edge Function scopes historical reads to the family owner and preserves cached legacy advice', async () => {
   let handler: (req: Request) => Promise<Response>;
   let owned = true;
   let calls = 0;
@@ -159,9 +160,9 @@ test('Edge Function scopes historical reads to authenticated owner and preserves
   let rows = dates.map(date => ({ date, data: { daySummary: { memo: 'パスを守備に取られた' }, parentComment: 'private' }, advice: base }));
   let output: unknown = { ...base, growth: { improved: '10/1と10/4から顔を上げる工夫を続けているね。', ongoing: '10/1と10/4は「パスを守備に取られた」と書いていたね。今日も同じ課題に取り組もう。', next: '受け手との間に守備がいたら、待つか運ぼう。', evidence_dates: dates } };
   const db = {
-    auth: { getUser: async () => ({ data: { user: { id: 'allowed-user' } }, error: null }) },
     from: () => { const chain = { update: () => chain, eq: () => chain, is: () => chain }; return chain; },
     rpc: async (name: string, args: Record<string, unknown>) => {
+      if (name === 'chappy_family_user') return { data: 'allowed-user', error: null };
       assert.equal(args.p_user, 'allowed-user');
       assert.equal(args.p_date, '2026-10-07');
       if (name === 'chappy_previous_goals') return { data: [], error: null };
@@ -176,7 +177,7 @@ test('Edge Function scopes historical reads to authenticated owner and preserves
   const code = transformSync(readFileSync('supabase/functions/chappy-advice/index.ts', 'utf8'), { loader: 'ts', format: 'cjs' }).code;
   runInNewContext(code, {
     exports: {}, Response, Request, AbortSignal, crypto,
-    Deno: { env: { get: (key: string) => ({ CHAPPY_ALLOWED_USER_IDS: 'allowed-user', OPENAI_API_KEY: 'test-only-placeholder', SUPABASE_URL: 'https://example.invalid', SUPABASE_SERVICE_ROLE_KEY: 'test-only-placeholder' })[key] }, serve: (fn: typeof handler) => { handler = fn; } },
+    Deno: { env: { get: (key: string) => ({ SUPABASE_ANON_KEY: 'test-anon-key', OPENAI_API_KEY: 'test-only-placeholder', SUPABASE_URL: 'https://example.invalid', SUPABASE_SERVICE_ROLE_KEY: 'test-only-placeholder' })[key] }, serve: (fn: typeof handler) => { handler = fn; } },
     require: (name: string) => name === './advice.ts' ? adviceModule : { createClient: () => db },
     fetch: async (_url: string, options: { body: string }) => {
       calls++;
@@ -191,7 +192,7 @@ test('Edge Function scopes historical reads to authenticated owner and preserves
       return new Response(JSON.stringify({ choices: [{ finish_reason: 'stop', message: { content: JSON.stringify({ ...(output as object), grounding: { current_quote: '顔は上げた', past_quotes: rows.map(row => ({ date: row.date, quote: 'パスを守備に取られた' })) } }) } }] }));
     },
   });
-  const invoke = (action = 'generate') => handler!(new Request('https://example.invalid', { method: 'POST', headers: { Authorization: 'Bearer jwt' }, body: JSON.stringify({ date: '2026-10-07', action, user_id: 'outsider' }) }));
+  const invoke = (action = 'generate') => handler!(new Request('https://example.invalid', { method: 'POST', headers: { Authorization: 'Bearer test-anon-key' }, body: JSON.stringify({ date: '2026-10-07', action, user_id: 'outsider' }) }));
   assert.equal((await invoke()).status, 200);
   assert.equal(calls, 1);
   cache = base;
@@ -228,8 +229,8 @@ test('Edge Function persists new follow-up/growth shape and returns cached new o
     grounding: { current_quote: quote, growth_current_quote: quote, past_quotes: dates.map(date => ({ date, quote: '声を出せなかった' })), follow_up_quotes: dates.map(date => ({ date, quote })) },
   };
   const db = {
-    auth: { getUser: async () => ({ data: { user: { id: userId } }, error: null }) },
     rpc: async (name: string, args: any) => {
+      if (name === 'chappy_family_user') return { data: userId, error: null };
       assert.equal(args.p_user, userId);
       if (name === 'chappy_oct09_saved') { assert.equal(args.p_date, '2026-10-09'); return { data: { advice: { ...prior, mission: '再生成版：声でスクリーンの方向を知らせよう' }, regenerated: true }, error: null }; }
       if (name === 'chappy_previous_goals') return { data: [], error: null };
@@ -244,7 +245,7 @@ test('Edge Function persists new follow-up/growth shape and returns cached new o
   const code = transformSync(readFileSync('supabase/functions/chappy-advice/index.ts', 'utf8'), { loader: 'ts', format: 'cjs' }).code;
   runInNewContext(code, {
     exports: {}, Response, Request, AbortSignal, crypto,
-    Deno: { env: { get: (key: string) => ({ CHAPPY_ALLOWED_USER_IDS: userId, OPENAI_API_KEY: 'test-only-placeholder' })[key] }, serve: (fn: typeof handler) => { handler = fn; } },
+    Deno: { env: { get: (key: string) => ({ SUPABASE_ANON_KEY: 'test-anon-key', OPENAI_API_KEY: 'test-only-placeholder' })[key] }, serve: (fn: typeof handler) => { handler = fn; } },
     require: (name: string) => name === './advice.ts' ? adviceModule : { createClient: () => db },
     fetch: async (_url: string, options: { body: string }) => {
       calls++;
@@ -256,7 +257,7 @@ test('Edge Function persists new follow-up/growth shape and returns cached new o
       return new Response(JSON.stringify({ choices: [{ finish_reason: 'stop', message: { content: JSON.stringify(output) } }] }));
     },
   });
-  const invoke = () => handler!(new Request('https://example.invalid', { method: 'POST', headers: { Authorization: 'Bearer jwt' }, body: JSON.stringify({ date: '2026-10-20', action: 'generate' }) }));
+  const invoke = () => handler!(new Request('https://example.invalid', { method: 'POST', headers: { Authorization: 'Bearer test-anon-key' }, body: JSON.stringify({ date: '2026-10-20', action: 'generate' }) }));
   const response = await invoke();
   assert.equal(response.status, 200);
   const result = await response.json();

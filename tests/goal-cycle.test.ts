@@ -104,14 +104,15 @@ test('additive goal RPC is owner-scoped, excludes deleted/current/future days, s
   } finally { await db.close(); }
 });
 
-test('goal lookup authenticates/allowlists the caller and works before a new diary exists without generation or writes', async () => {
+test('goal lookup resolves the family owner and works before a new diary exists without generation or writes', async () => {
   const { transformSync } = await import('esbuild');
   const { runInNewContext } = await import('node:vm');
   const adviceModule = await import('../supabase/functions/chappy-advice/advice.ts');
   let handler: (request: Request) => Promise<Response>;
-  let identity = owner;
+  let family: string | null = owner;
   let reads = 0;
-  const db = { auth: { getUser: async () => ({ data: { user: { id: identity } }, error: null }) }, rpc: async (name: string, args: any) => {
+  const db = { rpc: async (name: string, args: any) => {
+    if (name === 'chappy_family_user') return { data: family, error: null };
     assert.equal(name,'chappy_previous_goals');
     assert.equal(args.p_user,owner);
     assert.equal(args.p_date,'2026-10-23');
@@ -120,15 +121,16 @@ test('goal lookup authenticates/allowlists the caller and works before a new dia
   } };
   const code=transformSync(readFileSync('supabase/functions/chappy-advice/index.ts','utf8'),{loader:'ts',format:'cjs'}).code;
   runInNewContext(code, { exports: {}, Response, Request, AbortSignal, crypto,
-    Deno: { env: { get: (key: string) => ({CHAPPY_ALLOWED_USER_IDS:owner,OPENAI_API_KEY:'test-placeholder'})[key] }, serve: (fn: typeof handler) => {handler=fn;} },
+    Deno: { env: { get: (key: string) => ({SUPABASE_ANON_KEY:'test-anon-key',OPENAI_API_KEY:'test-placeholder'})[key] }, serve: (fn: typeof handler) => {handler=fn;} },
     require: (name: string) => name==='./advice.ts' ? adviceModule : {createClient:()=>db},
     fetch: () => { throw new Error('Must not invoke OpenAI for goal lookup'); },
   });
-  const invoke = (auth=true) => handler!(new Request('https://example.invalid',{method:'POST',headers:auth?{Authorization:'Bearer test'}:{},body:JSON.stringify({action:'previous_goal',date:'2026-10-23',p_user:other})}));
+  const invoke = (auth: string | null = 'Bearer test-anon-key') => handler!(new Request('https://example.invalid',{method:'POST',headers:auth?{Authorization:auth}:{},body:JSON.stringify({action:'previous_goal',date:'2026-10-23',p_user:other})}));
   assert.deepEqual(await (await invoke()).json(),{status:'ready',goal});
   assert.equal(reads,1);
-  identity=other;
-  assert.equal((await invoke()).status,403);
-  assert.equal((await invoke(false)).status,401);
+  assert.equal((await invoke('Bearer wrong-key')).status,401);
+  assert.equal((await invoke(null)).status,401);
+  family = null;
+  assert.equal((await invoke()).status,404);
   assert.equal(reads,1);
 });

@@ -80,9 +80,9 @@ test('Edge regeneration is limited to owned October 9, reuses cached version, an
   let finishOk = false;
   const source = { teams: [{ good: 'パスを強く投げれた' }] };
   const db = {
-    auth: { getUser: async () => ({ data: { user: { id: owner } }, error: null }) },
     from: (name: string) => { assert.equal(name, 'chappy_oct09_revision'); const q = { update: () => q, eq: () => q, is: () => q }; return q; },
     rpc: async (name: string, args: any) => {
+      if (name === 'chappy_family_user') return { data: owner, error: null };
       assert.equal(args.p_user, owner);
       assert.equal(args.p_date, '2026-10-09');
       if (name === 'chappy_previous_goals') return { data: [], error: null };
@@ -96,11 +96,11 @@ test('Edge regeneration is limited to owned October 9, reuses cached version, an
   };
   runInNewContext(transformSync(readFileSync('supabase/functions/chappy-advice/index.ts', 'utf8'), { loader: 'ts', format: 'cjs' }).code, {
     exports: {}, Response, Request, AbortSignal, crypto,
-    Deno: { env: { get: (key: string) => ({ CHAPPY_ALLOWED_USER_IDS: owner, OPENAI_API_KEY: 'test-only', SUPABASE_URL: 'https://example.invalid', SUPABASE_SERVICE_ROLE_KEY: 'test-only' })[key] }, serve: (fn: typeof handler) => { handler = fn; } },
+    Deno: { env: { get: (key: string) => ({ SUPABASE_ANON_KEY: 'test-anon-key', OPENAI_API_KEY: 'test-only', SUPABASE_URL: 'https://example.invalid', SUPABASE_SERVICE_ROLE_KEY: 'test-only' })[key] }, serve: (fn: typeof handler) => { handler = fn; } },
     require: (name: string) => name === './advice.ts' ? adviceModule : { createClient: () => db },
     fetch: async () => { calls++; return new Response(JSON.stringify({ choices: [{ finish_reason: 'stop', message: { content: JSON.stringify({ good: fresh.good, focus: fresh.focus, mission: fresh.mission, growth: null, grounding: { current_quote: 'パスを強く投げれた', growth_current_quote: null, past_quotes: [] } }) } }] }), { status: providerOk ? 200 : 500 }); },
   });
-  const invoke = (action = 'regenerate_oct09', date = '2026-10-09') => handler!(new Request('https://example.invalid', { method: 'POST', headers: { Authorization: 'Bearer jwt' }, body: JSON.stringify({ date, action }) }));
+  const invoke = (action = 'regenerate_oct09', date = '2026-10-09') => handler!(new Request('https://example.invalid', { method: 'POST', headers: { Authorization: 'Bearer test-anon-key' }, body: JSON.stringify({ date, action }) }));
   assert.equal((await invoke('regenerate_oct09', '2026-10-08')).status, 400);
   assert.equal(calls, 0);
   assert.deepEqual(await (await invoke('generate')).json(), { status: 'ready', advice: old, regenerated: false });

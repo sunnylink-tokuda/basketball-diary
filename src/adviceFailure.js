@@ -17,7 +17,7 @@ export async function adviceFailure(error, data) {
     incomplete: 'AIから完全な回答を受け取れませんでした。少し待って、もう一度ためしてね。',
   };
   if (messages[body?.code]) return { retryAfter, message: `${messages[body.code]} 日記は保存されています。` };
-  if (response?.status === 401) return { retryAfter: 0, message: 'ログインの有効期限を確認できませんでした。ログインし直してね。日記は保存されています。' };
-  if (response?.status === 403) return { retryAfter: 0, message: 'AIを利用するアカウントの権限を確認してください。日記は保存されています。' };
+  if (response?.status === 401) return { retryAfter: 0, message: 'アプリの接続を確認できませんでした。ページを開き直して、もう一度ためしてね。日記は保存されています。' };
+  if (response?.status === 403) return { retryAfter: 0, message: 'AIを利用できませんでした。保護者に相談してね。日記は保存されています。' };
   return { retryAfter, message: 'アドバイスの取得に失敗しました。日記は保存されています。通信を確認して、もう一度ためしてね。' };
 }

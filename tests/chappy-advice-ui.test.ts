@@ -10,15 +10,10 @@ import { adviceFailure } from '../src/adviceFailure.js';
 import TestRenderer, { act } from 'react-test-renderer';
 
 const require = createRequire(import.meta.url);
-const session = { user: { id: 'allowed-user' }, access_token: 'test-session' };
 
-function fixture(restored: unknown = null, advice: unknown = { good: '工夫したね', focus: '周りを見よう', mission: 'パス前に顔を上げよう' }) {
-  let callback: (event: string, session: unknown) => void;
-  let failLogin = false;
+function fixture(advice: unknown = { good: '工夫したね', focus: '周りを見よう', mission: 'パス前に顔を上げよう' }) {
   let generationFailure: unknown = null;
-  let loginCalls = 0;
   let generationCalls = 0;
-  let passwordUpdates = 0;
   let failRevision = false;
   let regenerationCalls = 0;
   let latestAdvice = advice;
@@ -26,77 +21,31 @@ function fixture(restored: unknown = null, advice: unknown = { good: '工夫し�
   let holdRevision = false;
   let releaseRevision: (() => void) | undefined;
   const supabase = {
-    auth: {
-      getSession: async () => ({ data: { session: restored } }),
-      onAuthStateChange: (fn: typeof callback) => { callback = fn; return { data: { subscription: { unsubscribe() {} } } }; },
-      signInWithPassword: async (credentials: { email: string, password: string }) => {
-        loginCalls++;
-        assert.equal(credentials.email, 'parent@example.com');
-        assert.equal(credentials.password, 'test-password');
-        if (failLogin) return { data: { session: null }, error: new Error('Invalid credentials') };
-        callback('SIGNED_IN', session);
-        return { data: { session }, error: null };
-      },
-      signOut: async () => { callback('SIGNED_OUT', null); return { error: null }; },
-      updateUser: async ({ password }: { password: string }) => { passwordUpdates++; assert.equal(password, 'new-test-password'); return { error: null }; },
-    },
     functions: { invoke: async (_name: string, options: any) => { generationCalls++; if (generationFailure) return { data: null, error: generationFailure }; if (options.body.action === 'regenerate_oct09') { regenerationCalls++; if (holdRevision) await new Promise<void>(resolve => { releaseRevision = resolve; }); if (failRevision) return { data: null, error: new Error('Generation failed') }; latestAdvice = { good: '新しい回答', focus: '一つを見る', mission: '次に一度見る', growth: null }; regenerated = true; } return { data: { status: 'ready', advice: latestAdvice, regenerated }, error: null }; } },
   };
   const module = { exports: {} as { default: React.ComponentType<any> } };
   const code = transformSync(readFileSync('src/ChappyAdvice.jsx', 'utf8'), { loader: 'jsx', format: 'cjs', jsx: 'automatic' }).code;
   runInNewContext(code, { module, exports: module.exports, setTimeout, clearTimeout, require: (name: string) => name === './supabase.js' ? { supabase } : name === './growthExplanation.js' ? { growthExplanation } : name === './adviceFailure.js' ? { adviceFailure } : require(name) });
-  return { Component: module.exports.default, generationFails: (error: unknown) => { generationFailure = error; }, holdRevision: () => { holdRevision = true; }, releaseRevision: () => releaseRevision?.(), failRevision: () => { failRevision = true; }, succeedRevision: () => { failRevision = false; }, fail: () => { failLogin = true; }, succeed: () => { failLogin = false; }, counts: () => ({ loginCalls, generationCalls, passwordUpdates, regenerationCalls }) };
+  return { Component: module.exports.default, generationFails: (error: unknown) => { generationFailure = error; }, holdRevision: () => { holdRevision = true; }, releaseRevision: () => releaseRevision?.(), failRevision: () => { failRevision = true; }, succeedRevision: () => { failRevision = false; }, counts: () => ({ generationCalls, regenerationCalls }) };
 }
 
-test('password login failure, success, immediate advice and logout', async () => {
+test('advice loads immediately with no login form or auth controls anywhere', async () => {
   const f = fixture();
   let tree: TestRenderer.ReactTestRenderer;
   await act(async () => { tree = TestRenderer.create(React.createElement(f.Component, { date: '2026-10-07', record: { solos: [] } })); });
-  await act(async () => {
-    tree!.root.findByProps({ type: 'email' }).props.onChange({ target: { value: ' parent@example.com ' } });
-    tree!.root.findByProps({ autoComplete: 'current-password' }).props.onChange({ target: { value: 'test-password' } });
-  });
-  f.fail();
-  await act(async () => { await tree!.root.findByType('form').props.onSubmit({ preventDefault() {} }); });
-  assert.equal(f.counts().generationCalls, 0);
-  assert.match(JSON.stringify(tree!.toJSON()), /ログインできませんでした/);
-  f.succeed();
-  await act(async () => { await tree!.root.findByType('form').props.onSubmit({ preventDefault() {} }); });
   assert.equal(f.counts().generationCalls, 1);
-  assert.match(JSON.stringify(tree!.toJSON()), /工夫したね/);
-  assert.equal(tree!.root.findAllByProps({ autoComplete: 'current-password' }).length, 0);
-  const logout = tree!.root.findAllByType('button').find(button => button.props.children === 'ログアウト')!;
-  await act(async () => { await logout.props.onClick(); });
-  assert.equal(tree!.root.findByProps({ autoComplete: 'current-password' }).props.value, '');
-  assert.doesNotMatch(JSON.stringify(tree!.toJSON()), /工夫したね/);
-  await act(async () => tree!.unmount());
-});
-
-test('restored session skips login; existing user can set password without email', async () => {
-  const f = fixture(session);
-  let tree: TestRenderer.ReactTestRenderer;
-  await act(async () => { tree = TestRenderer.create(React.createElement(f.Component, { date: '2026-10-07', record: { solos: [] } })); });
-  assert.equal(f.counts().loginCalls, 0);
-  assert.equal(f.counts().generationCalls, 1);
-  await act(async () => { tree!.root.findAllByType('button').find(button => button.props.children === 'パスワードを設定・変更')!.props.onClick(); });
-  await act(async () => {
-    const inputs = tree!.root.findAllByProps({ autoComplete: 'new-password' });
-    inputs[0].props.onChange({ target: { value: 'new-test-password' } });
-    inputs[1].props.onChange({ target: { value: 'different' } });
-  });
-  await act(async () => { await tree!.root.findByType('form').props.onSubmit({ preventDefault() {} }); });
-  assert.equal(f.counts().passwordUpdates, 0);
-  await act(async () => { tree!.root.findAllByProps({ autoComplete: 'new-password' })[1].props.onChange({ target: { value: 'new-test-password' } }); });
-  await act(async () => { await tree!.root.findByType('form').props.onSubmit({ preventDefault() {} }); });
-  assert.equal(f.counts().passwordUpdates, 1);
+  const text = JSON.stringify(tree!.toJSON());
+  assert.match(text, /工夫したね/);
+  assert.doesNotMatch(text, /ログイン|パスワード|ログアウト/);
   assert.equal(tree!.root.findAllByType('input').length, 0);
+  assert.equal(tree!.root.findAllByType('form').length, 0);
   await act(async () => tree!.unmount());
 });
 
 test('optional growth section shows evidence; legacy and insufficient-history advice keep three sections', async () => {
   const base = { good: '工夫したね', focus: '周りを見よう', mission: 'パス前に顔を上げよう' };
   for (const growth of [undefined, null, { improved: '守備を見てパスできたね', ongoing: '通り道を選ぼう', next: '空くまで待とう', evidence_dates: ['2026-10-01', '2026-10-04'] }]) {
-    const f = fixture(session, growth === undefined ? base : { ...base, growth });
+    const f = fixture(growth === undefined ? base : { ...base, growth });
     let tree: TestRenderer.ReactTestRenderer;
     await act(async () => { tree = TestRenderer.create(React.createElement(f.Component, { date: '2026-10-07', record: { solos: [] } })); });
     const text = JSON.stringify(tree!.toJSON());
@@ -115,7 +64,7 @@ test('optional growth section shows evidence; legacy and insufficient-history ad
 
 test('parents see persisted reason and counts; old missing reasons are never inferred', async () => {
   for (const status of [undefined, { code: 'past_evidence_unverified', history_count: 20, comparable_count: 5 }]) {
-    const f = fixture(session, { good: '記録したね', focus: '周りを見よう', mission: '一度見よう', growth: null, ...(status ? { growth_status: status } : {}) });
+    const f = fixture({ good: '記録したね', focus: '周りを見よう', mission: '一度見よう', growth: null, ...(status ? { growth_status: status } : {}) });
     let tree: TestRenderer.ReactTestRenderer;
     await act(async () => { tree = TestRenderer.create(React.createElement(f.Component, { date: '2026-10-09', record: { teams: [] } })); });
     const text = JSON.stringify(tree!.toJSON());
@@ -129,7 +78,7 @@ test('parents see persisted reason and counts; old missing reasons are never inf
 });
 
 test('October 9 regeneration keeps old advice on failure, switches on success and disappears on other dates', async () => {
-  const f = fixture(session);
+  const f = fixture();
   let tree: TestRenderer.ReactTestRenderer;
   await act(async () => { tree = TestRenderer.create(React.createElement(f.Component, { date: '2026-10-09', record: { teams: [] } })); });
   const button = () => tree!.root.findAllByType('button').find(b => b.props.children === '10月9日のアドバイスを再生成');
@@ -150,7 +99,7 @@ test('October 9 regeneration keeps old advice on failure, switches on success an
 });
 
 test('a late October 9 regeneration response cannot replace another date on screen', async () => {
-  const f = fixture(session);
+  const f = fixture();
   f.holdRevision();
   let tree: TestRenderer.ReactTestRenderer;
   await act(async () => { tree = TestRenderer.create(React.createElement(f.Component, { date: '2026-10-09', record: { teams: [] } })); });
@@ -164,7 +113,7 @@ test('a late October 9 regeneration response cannot replace another date on scre
 });
 
 test('new coaching displays follow-up questions and separates confirmed growth, ongoing tasks and new challenges', async () => {
-  const f = fixture(session, {
+  const f = fixture({
     good: '声を出したと振り返れたね', focus: '次も知らせよう', mission: '次の守備でスクリーンを1回知らせよう',
     follow_up: [{ date: '2026-10-19', status: 'unknown', comment: '前のミッションは試せたかな？ 次の日記で教えてね。' }],
     growth: { improved: '声を出した記録があるね', ongoing: '知らせるタイミングを続けよう', new_challenge: '次の提案：方向も知らせよう', next: '近づいたらすぐ知らせよう', evidence_dates: ['2026-10-18', '2026-10-19'] },
@@ -178,7 +127,7 @@ test('new coaching displays follow-up questions and separates confirmed growth, 
 });
 
 test('generation wait shows a disabled retry countdown instead of a settings error', async () => {
-  const f = fixture(session);
+  const f = fixture();
   f.generationFails({ context: new Response(JSON.stringify({ status: 'busy', retry_after: 1 }), { status: 409 }) });
   let tree: TestRenderer.ReactTestRenderer;
   await act(async () => { tree = TestRenderer.create(React.createElement(f.Component, { date: '2026-10-20', record: { teams: [] } })); });
